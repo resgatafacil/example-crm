@@ -11,7 +11,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/funil /app/funil
 COPY --from=build /out/mockresgata /app/mockresgata
 COPY --from=build --chown=nonroot:nonroot /out/data /data
-ENV APP_ADDR=:8080 DATABASE_PATH=/data/funil.db
+ENV APP_ADDR=:8080 DATABASE_PATH=/data/funil.db DATA_DIR=/data
 EXPOSE 8080
 VOLUME ["/data"]
 USER nonroot:nonroot

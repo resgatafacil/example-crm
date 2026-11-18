@@ -86,7 +86,10 @@ docker compose up --build
 docker compose --profile offline up --build
 ```
 
-The second command also starts the mock platform.
+The second command also starts the mock platform. The compose file keeps the databases in
+the `funil-data` volume mounted at `/data`; the image sets `DATA_DIR=/data`, so portal mode
+stores its registry and workspaces there too. Keep that volume on persistent storage if you
+want workspaces to survive a redeploy.
 
 ## Configuration
 
@@ -108,9 +111,98 @@ secret lives in the code or in the repository.**
 | `DATABASE_PATH` | no | `data/funil.db` | SQLite file |
 | `ADMIN_PASSWORD` | no | | If set, the admin UI asks for HTTP basic auth (any user name, this password). **If unset the UI is open to anyone who can reach it**: fine on localhost, not on the internet |
 | `CRM_API_RATE_LIMIT` | no | `60` | Requests per minute per CRM API key |
+| `DATA_DIR` | no | folder of `DATABASE_PATH` | Where portal mode keeps `registry.db` and `workspaces/<id>.db` |
+| `PORTAL_SSO_SECRET` | no | | Turns [portal gating](#gating-the-demo-with-the-resgata-developers-portal) on and replaces `ADMIN_PASSWORD`. At least 16 characters; `openssl rand -hex 32` |
+| `PORTAL_URL` | no | `https://developers.resgatafacil.com` | Where the gate page and "Sair" send people |
+| `WORKSPACE_TTL_HOURS` | no | `24` | Hours without activity before a workspace is deleted |
+| `MAX_WORKSPACES` | no | `50` | Workspaces that can exist at once; beyond it new developers see a "demo is full" page |
+| `SESSION_TTL_HOURS` | no | `8` | Lifetime of the session cookie |
+| `WORKSPACE_PURGE_INTERVAL_MINUTES` | no | `15` | How often idle workspaces are looked for |
 
 Demo data (units, flows, 15 leads, including sandbox magic numbers) is created the first
 time the database is empty. Pass `--no-seed` to start empty.
+
+## Gating the demo with the Resgata developers portal
+
+By default the demo is one workspace, open on localhost or behind `ADMIN_PASSWORD`. To host
+it publicly for people who have access to the Resgata developers portal, set
+`PORTAL_SSO_SECRET`. Portal mode changes three things:
+
+- **Entry only through the portal.** The portal sends the signed-in developer to
+  `GET /portal-login?token=<token>`. Without a valid session every admin page shows
+  "Entre pelo portal de desenvolvedores" with a button to `PORTAL_URL`. `/webhooks/resgata`,
+  `/api/v1/*`, static files and `/healthz` stay reachable, because they carry their own
+  authentication.
+- **One workspace per developer.** The token's `sub` becomes a stable workspace id
+  (the first 16 hex characters of `sha256("funil-demo/workspace/v1:" + sub)`). Each
+  workspace is its own SQLite file with its own seeded data, CRM API keys (they look like
+  `crm_<workspace id>_<random>`), encrypted Resgata connection and event log. The workspace
+  id is also the `external_ref` of its Resgata connection, which is how webhooks find their
+  way back: the one application-level webhook secret verifies the signature, then the event
+  goes to the workspace named by `connection.external_ref`. Events for an unknown workspace
+  are answered with `200` and dropped, so Resgata does not keep retrying them.
+- **Cleanup.** A workspace idle for `WORKSPACE_TTL_HOURS` is deleted: the app first calls
+  `DELETE /connection` with the workspace's token (failures are logged and the purge
+  continues), then removes the database and the registry row. "Reiniciar" in the header
+  does the same for the developer's own workspace and seeds it again. `MAX_WORKSPACES`
+  protects the host and the sandbox quotas of your Resgata application, which are counted
+  per application.
+
+### The login token
+
+The portal builds the token; this app only verifies it.
+
+```
+token     = base64url(payload) + "." + base64url(HMAC_SHA256(secret, base64url(payload)))
+payload   = {"sub": "<stable developer id>", "name": "<display name>",
+             "iat": <unix>, "exp": <iat + 60>, "jti": "<unique id>"}
+```
+
+Both parts use raw base64url (no `=` padding) and the HMAC covers the first part exactly as
+it is sent. The key is `PORTAL_SSO_SECRET`. The app accepts a token once (`jti` is
+remembered until it expires), rejects `exp` in the past (5 seconds of clock skew allowed),
+tokens issued in the future and lifetimes above 5 minutes, and compares signatures in
+constant time.
+
+Go, using this repository's package:
+
+```go
+token, err := portal.Sign(secret, portal.Claims{
+	Subject: "dev-123", Name: "Maria Souza",
+	IssuedAt: now.Unix(), ExpiresAt: now.Add(time.Minute).Unix(), ID: randomID,
+})
+loginURL := "https://demo.example.com/portal-login?token=" + url.QueryEscape(token)
+```
+
+Any other language:
+
+```
+payload = json({sub, name, iat, exp, jti})
+part1   = base64url_nopad(payload)
+part2   = base64url_nopad(hmac_sha256(key = secret, message = part1))
+token   = part1 + "." + part2
+```
+
+For local work, `cmd/mktoken` signs one from `PORTAL_SSO_SECRET`:
+
+```sh
+go run ./cmd/mktoken -sub dev-1 -name "Maria Souza" -url http://localhost:8080
+```
+
+It prints a ready-to-open login link (omit `-url` to print only the token). Each link works
+once, so run it again for every sign-in.
+
+### Security notes for portal mode
+
+- The session cookie is `workspaceId.expiry.signature`, signed with a key derived from
+  `APP_ENCRYPTION_KEY` (HKDF-SHA256 with a fixed context label), `HttpOnly`,
+  `SameSite=Lax`, and `Secure` when `PUBLIC_URL` is `https`. It carries no personal data.
+- A cookie whose workspace was purged no longer works; its owner lands on the gate page.
+- The token travels in a URL, so it lives for a minute, works once and the response is
+  `Cache-Control: no-store`. Serve the app over https in production.
+- Keep `PORTAL_SSO_SECRET` out of the repository and out of client code. Rotating it signs
+  everybody out of the login link flow but keeps existing sessions until they expire.
+- The demo runs only on the Resgata sandbox. Do not point portal mode at live credentials.
 
 ## The flow, step by step
 
@@ -217,6 +309,9 @@ reader against this API.
 | Sandbox tools | `internal/web/sandbox.go` |
 | Offline mock of the platform | `internal/mockresgata/mock.go` |
 | Environment configuration and the setup screen | `internal/config/config.go`, `internal/web/templates/setup.html` |
+| Portal login token and session cookie | `internal/portal/` |
+| Per-developer workspaces, registry and cleanup | `internal/workspace/manager.go`, `internal/web/portal.go` |
+| Gate page and the "Olá, Nome" bar | `internal/web/templates/gate.html`, `internal/web/templates/layout.html` |
 
 ## Local development with a tunnel
 
@@ -246,7 +341,7 @@ everything with the [offline mock](#2-offline-with-the-mock-platform).
   `APP_ENCRYPTION_KEY`. It is never rendered and is deleted when the connection is revoked.
 - **No secrets in code.** Configuration is environment only; `.env` is git-ignored; CRM API
   keys are stored as SHA-256 hashes; tests generate their own random values.
-- **Admin UI.** Set `ADMIN_PASSWORD` for anything reachable from the internet. POSTs also
+- **Admin UI.** Set `ADMIN_PASSWORD` (or use portal mode) for anything reachable from the internet. POSTs also
   require a same-origin request (`Sec-Fetch-Site` and `Origin` checks). The CRM API and the
   webhook endpoint have their own authentication and are not behind the admin password.
 - **Content-Security-Policy.** Scripts only from the app itself. Inline style attributes are
@@ -263,8 +358,11 @@ make build   # static binaries in bin/
 
 The tests cover signature verification (tolerance window, several `v1` values, malformed
 headers), deduplication and retry-after-failure, PKCE (RFC 7636 vector), the CRMSOLUT-style
-API (auth, filters, cursor pagination, validation, rate limit) and an end-to-end flow that
-runs OAuth, sends messages and receives signed webhooks against the mock platform.
+API (auth, filters, cursor pagination, validation, rate limit), portal tokens and session
+cookies (valid, forged, expired, replayed), workspace isolation, webhook routing by
+`external_ref`, reset, purge and the capacity limit, and end-to-end flows that run OAuth,
+send messages and receive signed webhooks against the mock platform, for one developer and
+for two side by side.
 
 Source files carry no comments by convention; the explanations live in this README.
 
