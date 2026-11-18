@@ -4,8 +4,15 @@ import (
 	"bufio"
 	"encoding/base64"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+)
+
+const (
+	MinPortalSecretLen = 16
+	DefaultPortalURL   = "https://developers.resgatafacil.com"
 )
 
 const (
@@ -31,6 +38,22 @@ type Config struct {
 	AppKey        string
 	WebhookSecret string
 	Environment   string
+
+	DataDir       string
+	PortalSecret  string
+	PortalURL     string
+	WorkspaceTTL  time.Duration
+	SessionTTL    time.Duration
+	MaxWorkspaces int
+	PurgeInterval time.Duration
+}
+
+func (c Config) PortalMode() bool {
+	return c.PortalSecret != ""
+}
+
+func (c Config) SecureCookies() bool {
+	return strings.HasPrefix(c.PublicURL, "https://")
 }
 
 func (c Config) Sandbox() bool {
@@ -67,6 +90,34 @@ func Load(getenv func(string) string) (Config, []Problem) {
 		RateLimit:     60,
 	}
 	cfg.PublicURL = strings.TrimRight(value("PUBLIC_URL", defaultPublicURL(cfg.Addr)), "/")
+
+	cfg.DataDir = value("DATA_DIR", filepath.Dir(cfg.DatabasePath))
+	cfg.PortalSecret = strings.TrimSpace(getenv("PORTAL_SSO_SECRET"))
+	cfg.PortalURL = strings.TrimRight(value("PORTAL_URL", DefaultPortalURL), "/")
+	cfg.WorkspaceTTL = 24 * time.Hour
+	cfg.SessionTTL = 8 * time.Hour
+	cfg.MaxWorkspaces = 50
+	cfg.PurgeInterval = 15 * time.Minute
+
+	if cfg.PortalSecret != "" && len(cfg.PortalSecret) < MinPortalSecretLen {
+		problems = append(problems, Problem{"PORTAL_SSO_SECRET", "Segredo compartilhado com o portal de desenvolvedores, com pelo menos 16 caracteres. Gere com: openssl rand -hex 32"})
+	}
+	positive := func(name, hint string, apply func(int)) {
+		raw := value(name, "")
+		if raw == "" {
+			return
+		}
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			problems = append(problems, Problem{name, hint})
+			return
+		}
+		apply(n)
+	}
+	positive("WORKSPACE_TTL_HOURS", "Número inteiro de horas maior que zero.", func(n int) { cfg.WorkspaceTTL = time.Duration(n) * time.Hour })
+	positive("SESSION_TTL_HOURS", "Número inteiro de horas maior que zero.", func(n int) { cfg.SessionTTL = time.Duration(n) * time.Hour })
+	positive("MAX_WORKSPACES", "Número inteiro maior que zero.", func(n int) { cfg.MaxWorkspaces = n })
+	positive("WORKSPACE_PURGE_INTERVAL_MINUTES", "Número inteiro de minutos maior que zero.", func(n int) { cfg.PurgeInterval = time.Duration(n) * time.Minute })
 
 	if raw := value("CRM_API_RATE_LIMIT", ""); raw != "" {
 		n, err := strconv.Atoi(raw)

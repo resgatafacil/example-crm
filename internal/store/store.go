@@ -14,8 +14,9 @@ import (
 const TimeFormat = "2006-01-02T15:04:05.000000Z"
 
 type Store struct {
-	db  *sql.DB
-	now func() time.Time
+	db       *sql.DB
+	now      func() time.Time
+	keyScope string
 }
 
 func Open(path string) (*Store, error) {
@@ -44,6 +45,10 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+func (s *Store) SetKeyScope(scope string) {
+	s.keyScope = scope
 }
 
 func (s *Store) SetClock(now func() time.Time) {

@@ -19,7 +19,11 @@ type APIKey struct {
 }
 
 func (s *Store) CreateAPIKey(unitID, name string) (string, error) {
-	secret, err := crypto.RandomToken(KeyPrefix, 24)
+	scoped := KeyPrefix
+	if s.keyScope != "" {
+		scoped += s.keyScope + "_"
+	}
+	secret, err := crypto.RandomToken(scoped, 24)
 	if err != nil {
 		return "", err
 	}
