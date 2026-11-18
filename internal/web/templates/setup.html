@@ -1,0 +1,36 @@
+{{define "setup"}}<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configuração necessária · Funil Demo</title>
+  <link rel="icon" type="image/svg+xml" href="/static/img/funil.svg">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main class="auth-wrap">
+    <div class="auth-card">
+      <div class="row" style="gap:10px"><img src="/static/img/funil.svg" alt="" width="36" height="36"><b style="font-size:18px;color:var(--primary)">Funil Demo</b></div>
+      <div>
+        <h1>Falta configurar {{len .Problems}} {{if eq (len .Problems) 1}}variável{{else}}variáveis{{end}}</h1>
+        <p class="muted" style="margin-top:6px">O CRM de exemplo não guarda nenhum segredo no código. Defina as variáveis abaixo no arquivo <code>.env</code> (copie de <code>.env.example</code>) ou no ambiente e reinicie.</p>
+      </div>
+      <ul class="stack" style="list-style:none;margin:0;padding:0;gap:10px">
+        {{range .Problems}}
+        <li class="notice warn" style="display:block"><code style="font-weight:700">{{.Name}}</code><div class="small" style="margin-top:4px">{{.Hint}}</div></li>
+        {{end}}
+      </ul>
+      {{if .SuggestedKey}}
+      <div>
+        <div class="label" style="margin-bottom:6px">Sugestão para APP_ENCRYPTION_KEY (gerada agora, só para você copiar)</div>
+        {{template "copy" .SuggestedKey}}
+      </div>
+      {{end}}
+      <p class="small muted">Os valores do Resgata Fácil (client_id e segredo do webhook) aparecem no portal de desenvolvedores, na página do seu aplicativo.</p>
+    </div>
+  </main>
+</body>
+</html>{{end}}
+{{define "copy"}}<div class="copy-row"><code>{{.}}</code><button class="btn secondary" type="button" data-copy="{{.}}"><span data-copy-label>Copiar</span></button></div>{{end}}

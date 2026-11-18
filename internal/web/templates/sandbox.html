@@ -1,0 +1,98 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Ferramentas do sandbox</h1>
+    <p>Dispare eventos, simule respostas e opt-outs e mude o estado dos números sem WhatsApp, Meta ou cliente. Tudo acontece em dados falsos do Resgata Fácil.</p>
+  </div>
+  <div class="actions"><span class="chip info">Sandbox</span></div>
+</div>
+
+{{if not .Data.Connected}}
+<div class="card empty">
+  <span class="art">{{icon "plug"}}</span>
+  <h2>Conecte o CRM primeiro</h2>
+  <p>As ferramentas usam o token da conexão de sandbox. Conecte pelo OAuth simulado: leva um clique.</p>
+  <a class="btn" href="/integracao">{{icon "plug"}}Ir para a integração</a>
+</div>
+{{else}}
+{{with .Data.Error}}<div class="notice error" style="margin-bottom:16px">{{icon "alert"}}<span>{{.}}</span></div>{{end}}
+<div class="grid cols-2">
+  <section class="card">
+    <header><h2>Disparar um evento</h2></header>
+    <form class="stack" method="post" action="/sandbox/evento">
+      <div class="field"><label for="tipo">Tipo</label>
+        <select id="tipo" name="tipo">{{range eventTypes}}<option value="{{.}}">{{.}}</option>{{end}}</select></div>
+      <div class="field"><label for="ev-lead">Lead <span class="muted">(para eventos de mensagem e opt-out)</span></label>
+        <select id="ev-lead" name="lead"><option value="">Telefone de exemplo</option>{{range .Data.Leads}}<option value="{{.ID}}">{{.Nome}} · {{phone .Celular}}</option>{{end}}</select></div>
+      <div class="field"><label for="ev-texto">Texto <span class="muted">(opcional)</span></label><input id="ev-texto" name="texto" type="text" placeholder="Quero agendar uma avaliação"></div>
+      <div class="form-actions"><button class="btn" type="submit">{{icon "bolt"}}Disparar evento</button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <header><h2>Simular o cliente</h2></header>
+    <div class="stack">
+      <form class="stack" method="post" action="/sandbox/resposta">
+        <div class="field"><label for="in-lead">Lead que responde</label>
+          <select id="in-lead" name="lead" required>{{range .Data.Leads}}<option value="{{.ID}}">{{.Nome}} · {{phone .Celular}}</option>{{end}}</select></div>
+        <div class="field"><label for="in-texto">Resposta</label><input id="in-texto" name="texto" type="text" placeholder="Oi, quero saber o preço"></div>
+        <div class="form-actions"><button class="btn secondary" type="submit">{{icon "inbox"}}Simular resposta</button></div>
+      </form>
+      <hr style="border:0;border-top:1px solid var(--border);width:100%">
+      <form class="stack" method="post" action="/sandbox/optout">
+        <div class="field"><label for="oo-lead">Lead que pede para parar</label>
+          <select id="oo-lead" name="lead" required>{{range .Data.Leads}}<option value="{{.ID}}">{{.Nome}} · {{phone .Celular}}</option>{{end}}</select></div>
+        <div class="form-actions"><button class="btn secondary" type="submit">{{icon "ban"}}Simular opt-out</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Números do sandbox</h2></header>
+    {{range $n := .Data.Numbers}}
+    <div class="number">
+      <span class="avatar">{{icon "phone"}}</span>
+      <div class="info"><b>{{if $n.Name}}{{$n.Name}}{{else}}Número {{$n.ID}}{{end}}</b><span class="muted small mono">{{phone $n.Phone}}</span></div>
+      <form class="right inline-form" method="post" action="/sandbox/numero/{{$n.ID}}" style="flex-wrap:nowrap">
+        <select name="status" aria-label="Estado do número {{$n.ID}}" data-auto-submit style="min-width:170px">
+          {{range numberStates}}<option value="{{.}}"{{if eq . $n.Status}} selected{{end}}>{{numLabel .}}</option>{{end}}
+        </select>
+      </form>
+    </div>
+    {{else}}<p class="muted">Nenhum número.</p>{{end}}
+    <form class="inline-form" method="post" action="/sandbox/numero" style="margin-top:16px">
+      <div class="field"><label for="num-nome">Novo número</label><input id="num-nome" name="nome" type="text" placeholder="Loja 2"></div>
+      <div class="field"><label for="num-status">Estado inicial</label>
+        <select id="num-status" name="status">{{range numberStates}}<option value="{{.}}">{{numLabel .}}</option>{{end}}</select></div>
+      <button class="btn secondary" type="submit">{{icon "plus"}}Criar</button>
+    </form>
+    <p class="small muted" style="margin-top:10px">Mudar o estado dispara <code>number.connected</code> ou <code>number.disconnected</code>. Só números conectados enviam mensagens.</p>
+  </section>
+
+  <section class="card">
+    <header><h2>Números mágicos</h2></header>
+    <p class="muted small" style="margin-bottom:10px">Envie uma mensagem para um destes telefones e o sandbox responde de forma previsível. Os leads de teste do seed já usam alguns.</p>
+    <div class="table-wrap" style="box-shadow:none">
+      <table><tbody>{{range .Data.Magic}}<tr><td class="mono" style="white-space:nowrap">{{.Phone}}</td><td>{{.Outcome}}</td></tr>{{end}}</tbody></table>
+    </div>
+  </section>
+</div>
+
+<div class="grid cols-2" style="margin-top:16px">
+  <section class="card">
+    <header><h2>Primeiros passos no portal</h2></header>
+    <ol class="stack small" style="margin:0;padding-left:18px;gap:8px">
+      <li>No portal, crie o aplicativo e copie o <code>client_id</code>.</li>
+      <li>Cadastre o redirect URI: {{template "copy" .Data.RedirectURI}}</li>
+      <li>Cadastre o webhook no ambiente sandbox: {{template "copy" .Data.WebhookURL}}</li>
+      <li>Copie o segredo <code>whsec_…</code> para <code>RESGATA_WEBHOOK_SECRET</code>.</li>
+    </ol>
+  </section>
+  <section class="card">
+    <header><h2>Limpar o sandbox</h2></header>
+    <p class="muted small" style="margin-bottom:12px">Apaga mensagens, números e eventos desta conexão e recria um número conectado. A conexão e o token continuam.</p>
+    <form method="post" action="/sandbox/limpar" data-confirm="Apagar as mensagens, números e eventos do sandbox?"><button class="btn danger" type="submit">{{icon "trash"}}Limpar sandbox</button></form>
+  </section>
+</div>
+{{end}}
+{{end}}

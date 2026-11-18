@@ -1,0 +1,49 @@
+{{define "eventsList"}}
+{{if .Rows}}
+{{range .Rows}}
+<details class="event" data-id="{{.Event.ID}}">
+  <summary>
+    {{if .Event.SignatureOK}}<span class="chip {{eventClass .Event.Type}}">{{if .Event.Type}}{{.Event.Type}}{{else}}evento{{end}}</span><span class="chip ok">{{icon "check"}}Assinatura válida</span>
+    {{else}}<span class="chip err">{{icon "alert"}}Rejeitado</span>{{end}}
+    {{if gt .Event.Attempt 1}}<span class="chip warn">tentativa {{.Event.Attempt}}</span>{{end}}
+    <span class="muted small right">{{datetime .Event.ReceivedAt}} · {{ago .Event.ReceivedAt}}</span>
+  </summary>
+  <div class="body">
+    {{if .Event.Reason}}<p class="outcome">{{if .Event.SignatureOK}}Resultado{{else}}Motivo{{end}}: {{.Event.Reason}}</p>{{end}}
+    <dl class="details-list">
+      {{if .Event.EventID}}<div><dt>Event ID</dt><dd class="mono">{{.Event.EventID}}</dd></div>{{end}}
+      {{if .Event.DeliveryID}}<div><dt>Delivery ID</dt><dd class="mono">{{.Event.DeliveryID}}</dd></div>{{end}}
+    </dl>
+    <pre>{{.Payload}}</pre>
+  </div>
+</details>
+{{end}}
+{{else}}
+<div class="card empty">
+  <span class="art">{{icon "bolt"}}</span>
+  <h2>{{if .Selected}}Nenhum evento deste tipo{{else}}Nenhum evento recebido ainda{{end}}</h2>
+  <p>{{if .Selected}}Tente outro filtro.{{else}}Cadastre o endpoint de webhook no portal e envie um evento de teste, ou use o sandbox deste CRM para disparar um.{{end}}</p>
+  {{if .Selected}}<a class="btn secondary" href="/eventos">Ver todos</a>{{else}}<a class="btn" href="/integracao">Ver como configurar</a>{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Eventos recebidos</h1>
+    <p>Tudo que o Resgata Fácil enviou ao <code>POST /webhooks/resgata</code>, inclusive o que foi recusado por assinatura inválida. Clique em um evento para ver o JSON.</p>
+  </div>
+  <div class="actions"><span class="live">Atualiza sozinho</span></div>
+</div>
+
+<nav class="tabs" aria-label="Filtrar por tipo">
+  <a class="tab" href="/eventos"{{if not .Data.Selected}} aria-current="true"{{end}}>Todos</a>
+  {{range .Data.Types}}<a class="tab" href="/eventos?tipo={{.}}"{{if eq . $.Data.Selected}} aria-current="true"{{end}}>{{.}}</a>{{end}}
+  <a class="tab" href="/eventos?tipo=rejected"{{if eq .Data.Selected "rejected"}} aria-current="true"{{end}}>Rejeitados</a>
+</nav>
+
+<div data-refresh-url="/eventos/lista{{if .Data.Selected}}?tipo={{.Data.Selected}}{{end}}" data-refresh-seconds="4">
+{{template "eventsList" .Data}}
+</div>
+{{end}}

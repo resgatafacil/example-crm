@@ -1,0 +1,59 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Início</h1>
+    <p>Um CRM de exemplo para mostrar, de ponta a ponta, como integrar à API, aos webhooks e ao OAuth do Resgata Fácil.</p>
+  </div>
+  <div class="actions"><a class="btn" href="/leads/novo">{{icon "plus"}}Novo lead</a></div>
+</div>
+
+<div class="grid cols-4" style="margin-bottom:16px">
+  <div class="card stat"><b>{{.Data.Stats.Leads}}</b><span>Leads no funil</span></div>
+  <div class="card stat"><b>{{.Data.Stats.Sendable}}</b><span>Podem receber mensagens</span></div>
+  <div class="card stat"><b>{{.Data.Stats.OptOuts}}</b><span>Pediram opt-out</span></div>
+  <div class="card stat"><b>{{.Data.Stats.Messages}}</b><span>Mensagens enviadas pelo Resgata</span></div>
+</div>
+
+<div class="grid cols-main">
+  <section class="card" aria-labelledby="first-steps">
+    <header>
+      <h2 id="first-steps">Primeiros passos</h2>
+      <span class="right muted">{{.Data.Done}} de {{len .Data.Checklist}} concluídos</span>
+    </header>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="{{len .Data.Checklist}}" aria-valuenow="{{.Data.Done}}"><i style="width:{{if eq .Data.Done 0}}4{{else if eq .Data.Done 1}}20{{else if eq .Data.Done 2}}40{{else if eq .Data.Done 3}}60{{else if eq .Data.Done 4}}80{{else}}100{{end}}%"></i></div>
+    <ol class="steps">
+      {{range $i, $item := .Data.Checklist}}
+      <li class="step {{if $item.Done}}done{{else}}todo{{end}}">
+        <span class="mark">{{if $item.Done}}{{icon "check"}}{{else}}{{add $i 1}}{{end}}</span>
+        <div><b>{{$item.Title}}</b><span>{{$item.Hint}}</span></div>
+        {{if and $item.Href (not $item.Done)}}<a class="btn secondary small" href="{{$item.Href}}">{{$item.Label}}</a>{{end}}
+      </li>
+      {{end}}
+    </ol>
+  </section>
+
+  <div class="stack">
+    <section class="card accent">
+      <header><h2>Endpoint de webhook</h2></header>
+      <p class="muted small" style="margin-bottom:10px">Cadastre este endereço no portal de desenvolvedores e marque os eventos que quer receber.</p>
+      {{template "copy" .Data.WebhookURL}}
+      {{if hasPrefix .Data.WebhookURL "http://localhost"}}<p class="small muted" style="margin-top:10px">Está em localhost? Exponha com um túnel (veja o README) e ajuste PUBLIC_URL.</p>{{end}}
+    </section>
+    <section class="card">
+      <header><h2>Últimos eventos</h2><a class="right" href="/eventos">Ver todos</a></header>
+      {{if .Data.Recent}}
+      <div class="stack" style="gap:10px">
+        {{range .Data.Recent}}
+        <div class="row" style="gap:8px">
+          {{if .SignatureOK}}<span class="chip {{eventClass .Type}}">{{.Type}}</span>{{else}}<span class="chip err">rejeitado</span>{{end}}
+          <span class="muted small right">{{ago .ReceivedAt}}</span>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <p class="muted">Nenhum evento ainda. Conecte o app e use o sandbox para disparar um.</p>
+      {{end}}
+    </section>
+  </div>
+</div>
+{{end}}

@@ -1,0 +1,51 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <div class="crumbs"><a href="/leads">Leads</a> / {{.Title}}</div>
+    <h1>{{.Title}}</h1>
+    <p>O celular é guardado no formato internacional (E.164). É com ele que o Resgata Fácil e os webhooks encontram este lead.</p>
+  </div>
+</div>
+
+<form class="card" method="post" action="{{if .Data.ID}}/leads/{{.Data.ID}}{{else}}/leads{{end}}" novalidate>
+  <div class="form-grid">
+    <div class="field{{if .Data.Errors.nome}} invalid{{end}}">
+      <label for="nome">Nome</label>
+      <input id="nome" name="nome" type="text" value="{{.Data.Lead.Nome}}" autocomplete="off" required{{if .Data.Errors.nome}} aria-invalid="true" aria-describedby="nome-erro"{{end}}>
+      {{with .Data.Errors.nome}}<span class="error-text" id="nome-erro">{{.}}</span>{{end}}
+    </div>
+    <div class="field{{if .Data.Errors.celular}} invalid{{end}}">
+      <label for="celular">Celular</label>
+      <input id="celular" name="celular" type="tel" value="{{.Data.Lead.Celular}}" placeholder="(19) 99123-4567" autocomplete="off" required{{if .Data.Errors.celular}} aria-invalid="true" aria-describedby="celular-erro"{{end}}>
+      {{with .Data.Errors.celular}}<span class="error-text" id="celular-erro">{{.}}</span>{{else}}<span class="hint">Com DDD. Números 5500000000xxx são mágicos no sandbox.</span>{{end}}
+    </div>
+    <div class="field{{if .Data.Errors.email}} invalid{{end}}">
+      <label for="email">E-mail <span class="muted">(opcional)</span></label>
+      <input id="email" name="email" type="email" value="{{.Data.Lead.Email}}" autocomplete="off"{{if .Data.Errors.email}} aria-invalid="true" aria-describedby="email-erro"{{end}}>
+      {{with .Data.Errors.email}}<span class="error-text" id="email-erro">{{.}}</span>{{end}}
+    </div>
+    <div class="field{{if .Data.Errors.estagio}} invalid{{end}}">
+      <label for="estagio">Estágio</label>
+      <select id="estagio" name="estagio">
+        {{range stages}}<option value="{{.}}"{{if eq . $.Data.Lead.Estagio}} selected{{end}}>{{stageLabel .}}</option>{{end}}
+      </select>
+    </div>
+    <div class="field{{if .Data.Errors.unidade}} invalid{{end}}">
+      <label for="unidade">Unidade</label>
+      <select id="unidade" name="unidade">
+        {{range .Data.Units}}<option value="{{.ID}}"{{if eq .ID $.Data.Lead.UnitID}} selected{{end}}>{{.Nome}}{{if not .Ativa}} (suspensa){{end}}</option>{{end}}
+      </select>
+    </div>
+    <div class="field{{if .Data.Errors.etapa}} invalid{{end}}">
+      <label for="etapa">Etapa do funil</label>
+      <select id="etapa" name="etapa">
+        {{range .Data.Flows}}<optgroup label="{{.Nome}}">{{range .Steps}}<option value="{{.ID}}"{{if eq .ID $.Data.Lead.StepID}} selected{{end}}>{{.Nome}}</option>{{end}}</optgroup>{{end}}
+      </select>
+    </div>
+  </div>
+  <div class="form-actions" style="margin-top:20px">
+    <button class="btn" type="submit">{{if .Data.ID}}Salvar alterações{{else}}Criar lead{{end}}</button>
+    <a class="btn ghost" href="{{if .Data.ID}}/leads/{{.Data.ID}}{{else}}/leads{{end}}">Cancelar</a>
+  </div>
+</form>
+{{end}}

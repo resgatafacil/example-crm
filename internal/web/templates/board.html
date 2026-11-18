@@ -1,0 +1,41 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Funil</h1>
+    <p>{{.Data.Total}} {{if eq .Data.Total 1}}lead{{else}}leads{{end}} no fluxo <b>{{.Data.Current.Nome}}</b>. Use as setas para mover um lead de etapa.</p>
+  </div>
+  <div class="actions"><a class="btn" href="/leads/novo">{{icon "plus"}}Novo lead</a></div>
+</div>
+
+<nav class="tabs" aria-label="Fluxos">
+  {{range .Data.Flows}}<a class="tab" href="/funil?fluxo={{.ID}}"{{if eq .ID $.Data.Current.ID}} aria-current="true"{{end}}>{{.Nome}}</a>{{end}}
+</nav>
+
+<div class="board">
+  {{range $col := .Data.Columns}}
+  <section class="column" aria-label="{{$col.Step.Nome}}">
+    <header><h3>{{$col.Step.Nome}}</h3><span class="count">{{len $col.Leads}}</span></header>
+    {{range $col.Leads}}
+    <article class="lead-card{{if .OptOut}} blocked{{end}}">
+      <div class="person">
+        <span class="avatar">{{initials .Nome}}</span>
+        <div><h3><a href="/leads/{{.ID}}">{{.Nome}}</a></h3><span>{{phone .Celular}}</span></div>
+      </div>
+      <div class="meta">
+        <span class="chip muted">{{stageLabel .Estagio}}</span>
+        {{if .OptOut}}<span class="chip warn">{{icon "ban"}}Opt-out</span>{{end}}
+        <span class="muted small">{{.UnitName}}</span>
+      </div>
+      <div class="move">
+        {{if $col.Prev}}<form method="post" action="/leads/{{.ID}}/mover"><input type="hidden" name="etapa" value="{{$col.Prev}}"><input type="hidden" name="voltar" value="board"><button class="btn secondary small icon-only" type="submit" data-no-loading aria-label="Mover {{.Nome}} para a etapa anterior" title="Etapa anterior">{{icon "left"}}</button></form>{{end}}
+        <a class="btn ghost small" href="/leads/{{.ID}}">Abrir</a>
+        {{if $col.Next}}<form method="post" action="/leads/{{.ID}}/mover" class="right"><input type="hidden" name="etapa" value="{{$col.Next}}"><input type="hidden" name="voltar" value="board"><button class="btn secondary small icon-only" type="submit" data-no-loading aria-label="Mover {{.Nome}} para a próxima etapa" title="Próxima etapa">{{icon "right"}}</button></form>{{end}}
+      </div>
+    </article>
+    {{else}}
+    <div class="empty-col">Nenhum lead nesta etapa</div>
+    {{end}}
+  </section>
+  {{end}}
+</div>
+{{end}}

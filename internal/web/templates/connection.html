@@ -1,0 +1,98 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Integração com o Resgata Fácil</h1>
+    <p>Autorize este CRM com OAuth (PKCE), acompanhe os passos que faltam para o cliente e veja os números do Workspace dele.</p>
+  </div>
+  <div class="actions">
+    {{if eq .Data.State "connected"}}<a class="btn secondary" href="/integracao">{{icon "refresh"}}Atualizar</a>{{end}}
+  </div>
+</div>
+
+{{if eq .Data.State "connected"}}
+<div class="grid cols-main">
+  <div class="stack">
+    <section class="card accent">
+      <header><h2>Conexão</h2><span class="right">{{template "brand-chip"}}</span></header>
+      <dl class="details-list">
+        <div><dt>Estado</dt><dd><span class="chip ok">Conectado</span></dd></div>
+        <div><dt>Conexão</dt><dd class="mono">{{.Data.Conn.ConnectionID}}</dd></div>
+        <div><dt>Ambiente</dt><dd>{{if .Data.Sandbox}}<span class="chip info">Sandbox</span>{{else}}<span class="chip ok">Produção</span>{{end}}</dd></div>
+        <div><dt>external_ref</dt><dd class="mono">{{.Data.Conn.ExternalRef}}</dd></div>
+        <div><dt>Permissões</dt><dd>{{range (stringsFields .Data.Conn.Scope)}}<code>{{.}}</code> {{end}}</dd></div>
+        <div><dt>Conectado em</dt><dd>{{datetime .Data.Conn.ConnectedAt}}</dd></div>
+        <div><dt>Último webhook</dt><dd>{{if .Data.HasEvent}}<span class="chip {{eventClass .Data.LastEvent.Type}}">{{.Data.LastEvent.Type}}</span> <span class="muted small">{{ago .Data.LastEvent.ReceivedAt}}</span>{{else}}<span class="muted">Nenhum recebido ainda. <a href="/eventos">Ver eventos</a></span>{{end}}</dd></div>
+      </dl>
+      <p class="small muted" style="margin-top:14px">O token fica criptografado (AES-GCM) no banco deste CRM e nunca aparece na tela.</p>
+      <form method="post" action="/resgata/desconectar" data-confirm="Desconectar do Resgata Fácil? O token será revogado." style="margin-top:14px">
+        <button class="btn danger" type="submit">Desconectar</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <header><h2>Números do Workspace</h2><span class="right muted">{{len .Data.Numbers}}</span></header>
+      {{if .Data.Numbers}}
+      {{range .Data.Numbers}}
+      <div class="number">
+        <span class="avatar">{{icon "phone"}}</span>
+        <div class="info"><b>{{if .Name}}{{.Name}}{{else}}Número {{.ID}}{{end}}</b><span class="muted small mono">{{phone .Phone}} · {{.Channel}}</span></div>
+        <span class="chip {{numClass .Status}} right">{{numLabel .Status}}</span>
+      </div>
+      {{end}}
+      {{else}}
+      <div class="empty"><span class="art">{{icon "phone"}}</span><h2>Nenhum número ainda</h2><p>O cliente precisa adicionar um número no Resgata Fácil. Siga o checklist ao lado.</p></div>
+      {{end}}
+    </section>
+  </div>
+
+  <section class="card">
+    <header><h2>O que falta para o cliente</h2></header>
+    {{if .Data.Error}}<div class="notice error" style="margin-bottom:12px">{{icon "alert"}}<span>{{.Data.Error}}</span></div>{{end}}
+    {{if .Data.HasSetup}}
+    {{if .Data.Setup.Ready}}<div class="notice" style="margin-bottom:12px;background:#f3fff8;border-color:#b9efd0;color:#0f3a28">{{icon "check"}}<span>Tudo pronto: o cliente já pode usar a integração.</span></div>{{end}}
+    <ol class="steps">
+      {{range $i, $step := .Data.Setup.Steps}}
+      <li class="step {{if eq $step.Status "complete"}}done{{else}}todo{{end}}">
+        <span class="mark">{{if eq $step.Status "complete"}}{{icon "check"}}{{else}}{{add $i 1}}{{end}}</span>
+        <div><b>{{$step.Title}}</b><span>{{if $step.Required}}Obrigatório{{else}}Opcional{{end}}</span></div>
+        {{with safeURL $step.ActionURL}}{{if ne $step.Status "complete"}}<a class="btn secondary small" href="{{.}}" target="_blank" rel="noopener noreferrer">Abrir no Resgata {{icon "external"}}</a>{{end}}{{end}}
+      </li>
+      {{end}}
+    </ol>
+    {{else if not .Data.Error}}<p class="muted">Carregando os passos…</p>{{end}}
+  </section>
+</div>
+
+{{else}}
+<div class="grid cols-main">
+  <section class="card accent">
+    {{if eq .Data.State "revoked"}}
+    <div class="notice warn" style="margin-bottom:16px">{{icon "alert"}}<span>A conexão foi encerrada (pelo cliente no Resgata Fácil ou por este CRM). Conecte de novo para voltar a usar a integração.</span></div>
+    {{end}}
+    <header><h2>Conectar ao Resgata Fácil</h2></header>
+    <p class="muted" style="margin-bottom:14px">Você vai para o Resgata Fácil, entra na sua conta e aprova o acesso. Depois volta para cá já conectado. Nenhuma senha passa por este CRM.</p>
+    <ul class="muted" style="margin:0 0 16px;padding-left:18px;display:grid;gap:4px">
+      <li>Ler seus números do WhatsApp</li>
+      <li>Enviar e ler mensagens</li>
+      <li>Ler contatos</li>
+    </ul>
+    <div class="row">
+      <a class="btn" href="/resgata/conectar">{{icon "plug"}}{{if eq .Data.State "revoked"}}Conectar de novo{{else}}Conectar ao Resgata Fácil{{end}}</a>
+      {{if and .Data.Sandbox .Data.HasAppKey}}
+      <form method="post" action="/resgata/atalho"><button class="btn secondary" type="submit">Atalho: criar conexão com a chave do app</button></form>
+      {{end}}
+    </div>
+    {{if .Data.Sandbox}}<p class="small muted" style="margin-top:14px">Ambiente sandbox: a aprovação é simulada em <code>/oauth/sandbox/authorize</code>, sem precisar de um cliente real.</p>{{end}}
+  </section>
+
+  <section class="card">
+    <header><h2>Cadastre no portal</h2></header>
+    <div class="stack">
+      <div><div class="label" style="margin-bottom:6px">Redirect URI do OAuth</div>{{template "copy" .Data.RedirectURI}}</div>
+      <div><div class="label" style="margin-bottom:6px">Endpoint de webhook</div>{{template "copy" .Data.WebhookURL}}</div>
+    </div>
+    <p class="small muted" style="margin-top:12px">O redirect URI precisa ser idêntico ao cadastrado no aplicativo. Use <code>PUBLIC_URL</code> para ajustar.</p>
+  </section>
+</div>
+{{end}}
+{{end}}

@@ -1,0 +1,108 @@
+{{define "timeline"}}
+{{if .Timeline}}
+<ul class="timeline" aria-label="Linha do tempo">
+  {{range .Timeline}}
+  {{if eq .Kind "message_out"}}
+  <li class="tl out"><span class="bullet">{{icon "send"}}</span>
+    <div class="bubble">
+      <div class="head"><b>Mensagem enviada</b><span class="chip {{msgClass .Status}}">{{msgLabel .Status}}</span><span>{{datetime .CreatedAt}}</span></div>
+      <p>{{.Body}}</p>
+      {{if eq .Status "failed"}}<p class="small" style="color:var(--error);margin-top:6px"><b>Código {{.ErrorCode}}.</b> {{failure .ErrorCode}}</p>{{end}}
+    </div></li>
+  {{else if eq .Kind "message_in"}}
+  <li class="tl in"><span class="bullet">{{icon "inbox"}}</span>
+    <div class="bubble"><div class="head"><b>Resposta do lead</b><span>{{datetime .CreatedAt}}</span></div><p>{{.Body}}</p></div></li>
+  {{else if eq .Kind "opt_out"}}
+  <li class="tl opt"><span class="bullet">{{icon "ban"}}</span>
+    <div class="bubble"><div class="head"><b>Opt-out</b><span>{{datetime .CreatedAt}}</span></div><p>{{.Body}}</p></div></li>
+  {{else if eq .Kind "step"}}
+  <li class="tl"><span class="bullet">{{icon "funnel"}}</span>
+    <div class="bubble"><div class="head"><b>Funil</b><span>{{datetime .CreatedAt}}</span></div><p>{{.Body}}</p></div></li>
+  {{else}}
+  <li class="tl"><span class="bullet">{{icon "note"}}</span>
+    <div class="bubble"><div class="head"><b>Nota</b><span>{{datetime .CreatedAt}}</span></div><p>{{.Body}}</p></div></li>
+  {{end}}
+  {{end}}
+</ul>
+{{if .Pending}}<p class="live small" style="margin-top:14px" data-pending>Atualizando os status ao vivo…</p>{{end}}
+{{else}}
+<div class="empty"><span class="art">{{icon "note"}}</span><h2>Nada por aqui ainda</h2><p>Mensagens, respostas, notas e mudanças de etapa aparecem nesta linha do tempo.</p></div>
+{{end}}
+{{end}}
+
+{{define "content"}}
+{{$lead := .Data.Lead}}
+<div class="page-head">
+  <div class="person">
+    <span class="avatar lg">{{initials $lead.Nome}}</span>
+    <div>
+      <div class="crumbs"><a href="/leads">Leads</a> / {{$lead.Nome}}</div>
+      <h1>{{$lead.Nome}}</h1>
+      <p class="row" style="gap:8px;margin-top:6px"><span class="chip muted">{{stageLabel $lead.Estagio}}</span>{{if $lead.OptOut}}<span class="chip warn">{{icon "ban"}}Opt-out: não receber mensagens</span>{{end}}<span class="muted">{{$lead.StepName}} · {{$lead.FlowName}}</span></p>
+    </div>
+  </div>
+  <div class="actions"><a class="btn secondary" href="/leads/{{$lead.ID}}/editar">{{icon "edit"}}Editar</a></div>
+</div>
+
+<div class="grid cols-main">
+  <section class="card" aria-labelledby="tl-title">
+    <header><h2 id="tl-title">Linha do tempo</h2></header>
+    <div data-refresh-url="/leads/{{$lead.ID}}/linha-do-tempo" data-refresh-seconds="3" data-refresh-while="[data-pending]">
+      {{template "timeline" .Data}}
+    </div>
+  </section>
+
+  <div class="stack">
+    <section class="card">
+      <header><h2>Contato</h2></header>
+      <dl class="details-list">
+        <div><dt>Celular</dt><dd class="mono">{{phone $lead.Celular}}</dd></div>
+        <div><dt>E-mail</dt><dd>{{if $lead.Email}}{{$lead.Email}}{{else}}<span class="muted">—</span>{{end}}</dd></div>
+        <div><dt>Unidade</dt><dd>{{$lead.UnitName}}</dd></div>
+        <div><dt>Criado em</dt><dd>{{datetime $lead.CriadoEm}}</dd></div>
+        <div><dt>Alterado em</dt><dd>{{datetime $lead.AlteradoEm}}</dd></div>
+      </dl>
+    </section>
+
+    <section class="card">
+      <header><h2>Mover no funil</h2></header>
+      <form class="inline-form" method="post" action="/leads/{{$lead.ID}}/mover">
+        <div class="field"><label for="etapa-mover">Etapa</label>
+          <select id="etapa-mover" name="etapa">
+            {{range .Data.Flows}}<optgroup label="{{.Nome}}">{{range .Steps}}<option value="{{.ID}}"{{if eq .ID $lead.StepID}} selected{{end}}>{{.Nome}}</option>{{end}}</optgroup>{{end}}
+          </select></div>
+        <button class="btn secondary" type="submit">Mover</button>
+      </form>
+    </section>
+
+    <section class="card accent">
+      <header><h2>Enviar WhatsApp</h2><span class="right">{{template "brand-chip"}}</span></header>
+      {{if $lead.OptOut}}
+      <div class="notice warn">{{icon "ban"}}<span>Este lead pediu para não receber mensagens. O CRM bloqueia o envio e a API informa <code>opt_out: true</code> ao Resgata Fácil.</span></div>
+      {{else if not .Data.Connected}}
+      <div class="notice">{{icon "info"}}<span>Conecte o CRM ao Resgata Fácil para enviar mensagens por aqui.</span></div>
+      <div style="margin-top:12px"><a class="btn" href="/integracao">{{icon "plug"}}Abrir integração</a></div>
+      {{else}}
+      {{with .Data.NumbersErr}}<div class="notice error" style="margin-bottom:12px">{{icon "alert"}}<span>{{.}}</span></div>{{end}}
+      <form class="stack" method="post" action="/leads/{{$lead.ID}}/mensagem">
+        <div class="field"><label for="numero">Enviar pelo número</label>
+          <select id="numero" name="numero">
+            {{range .Data.Numbers}}<option value="{{.ID}}"{{if not .Connected}} disabled{{end}}>{{if .Name}}{{.Name}}{{else}}Número {{.ID}}{{end}} · {{numLabel .Status}}</option>{{else}}<option value="">Número padrão</option>{{end}}
+          </select></div>
+        <div class="field"><label for="texto-msg">Mensagem</label><textarea id="texto-msg" name="texto" maxlength="1000" placeholder="Oi, {{$lead.Nome}}! Posso ajudar a agendar sua avaliação?" required></textarea></div>
+        <div class="form-actions"><button class="btn" type="submit">{{icon "send"}}Enviar mensagem</button></div>
+        <p class="small muted">Os status (enviada, entregue, lida ou falhou) chegam por webhook e aparecem na linha do tempo.</p>
+      </form>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header><h2>Nova nota</h2></header>
+      <form class="stack" method="post" action="/leads/{{$lead.ID}}/nota">
+        <div class="field"><label for="texto-nota" class="muted" style="font-weight:500">Anotação interna</label><textarea id="texto-nota" name="texto" placeholder="Combinei de ligar amanhã…" required></textarea></div>
+        <div class="form-actions"><button class="btn secondary" type="submit">Salvar nota</button></div>
+      </form>
+    </section>
+  </div>
+</div>
+{{end}}

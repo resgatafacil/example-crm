@@ -1,0 +1,66 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Chaves da API</h1>
+    <p>É assim que um parceiro lê os leads deste CRM, no mesmo formato da CRMSOLUT. Cada chave pertence a uma unidade e só enxerga os leads dela.</p>
+  </div>
+</div>
+
+{{if .Data.NewKey}}
+<section class="card accent" style="margin-bottom:16px" aria-live="polite">
+  <header><h2>Chave criada: {{.Data.NewName}}</h2></header>
+  <div class="notice warn" style="margin-bottom:12px">{{icon "alert"}}<span>Copie agora. Por segurança só guardamos um hash e esta chave não será mostrada de novo.</span></div>
+  {{template "copy" .Data.NewKey}}
+</section>
+{{end}}
+
+<div class="grid cols-main">
+  <div class="stack">
+    <section class="card">
+      <header><h2>Chaves ativas</h2></header>
+      {{if .Data.Keys}}
+      <div class="table-wrap" style="box-shadow:none">
+        <table>
+          <thead><tr><th>Nome</th><th>Unidade</th><th>Chave</th><th>Último uso</th><th></th></tr></thead>
+          <tbody>
+            {{range .Data.Keys}}
+            <tr>
+              <td><b>{{.Name}}</b></td>
+              <td>{{.UnitName}}</td>
+              <td class="mono">{{.Prefix}}…</td>
+              <td>{{if .LastUsedAt}}{{ago (deref .LastUsedAt)}}{{else}}<span class="muted">Nunca</span>{{end}}</td>
+              <td><form method="post" action="/chaves/{{.ID}}/revogar" data-confirm="Revogar esta chave? Quem a usa passará a receber 401."><button class="btn danger small" type="submit">Revogar</button></form></td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <div class="empty"><span class="art">{{icon "key"}}</span><h2>Nenhuma chave ainda</h2><p>Crie uma chave para a unidade que vai ser lida pelo Resgata Fácil.</p></div>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <header><h2>Nova chave</h2></header>
+      <form class="inline-form" method="post" action="/chaves">
+        <div class="field"><label for="k-nome">Nome</label><input id="k-nome" name="nome" type="text" placeholder="Integração Resgata Fácil"></div>
+        <div class="field"><label for="k-unidade">Unidade</label>
+          <select id="k-unidade" name="unidade">{{range .Data.Units}}<option value="{{.ID}}">{{.Nome}}{{if not .Ativa}} (suspensa){{end}}</option>{{end}}</select></div>
+        <button class="btn" type="submit">{{icon "plus"}}Criar chave</button>
+      </form>
+    </section>
+  </div>
+
+  <section class="card">
+    <header><h2>Como usar</h2></header>
+    <div class="stack">
+      <div><div class="label" style="margin-bottom:6px">Base da API</div>{{template "copy" .Data.BaseURL}}</div>
+      <div><div class="label" style="margin-bottom:6px">Exemplo</div>
+<pre>curl -H "Authorization: Bearer $CRM_KEY" \
+  "{{.Data.BaseURL}}/leads?limite=2&amp;estagio=lead"</pre></div>
+      <p class="small muted">Rotas: <code>GET /unidades</code>, <code>GET /fluxos</code> e <code>GET /leads</code> com <code>fluxo_id</code>, <code>etapa_id</code>, <code>estagio</code>, <code>limite</code> e <code>cursor</code>. Limite de {{.Data.RateLimit}} requisições por minuto por chave.</p>
+      <div class="notice">{{icon "info"}}<span>Para o Resgata Fácil ler este CRM no lugar da CRMSOLUT, aponte <code>CRMSOLUT_BASE_URL</code> para <code>{{.Data.BaseURL}}</code> e cole a chave na tela da integração.</span></div>
+    </div>
+  </section>
+</div>
+{{end}}

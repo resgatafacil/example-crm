@@ -1,0 +1,52 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Leads</h1>
+    <p>Todos os contatos do CRM. É daqui que a API no estilo CRMSOLUT lê os leads.</p>
+  </div>
+  <div class="actions"><a class="btn" href="/leads/novo">{{icon "plus"}}Novo lead</a></div>
+</div>
+
+<form class="toolbar" method="get" action="/leads" role="search">
+  <div class="field grow"><label for="q">Buscar</label><input id="q" type="search" name="q" value="{{.Data.Query}}" placeholder="Nome ou telefone"></div>
+  <div class="field"><label for="unidade">Unidade</label>
+    <select id="unidade" name="unidade" data-auto-submit>
+      <option value="">Todas</option>
+      {{range .Data.Units}}<option value="{{.ID}}"{{if eq .ID $.Data.Unit}} selected{{end}}>{{.Nome}}</option>{{end}}
+    </select></div>
+  <div class="field"><label for="estagio">Estágio</label>
+    <select id="estagio" name="estagio" data-auto-submit>
+      <option value="">Todos</option>
+      {{range stages}}<option value="{{.}}"{{if eq . $.Data.Stage}} selected{{end}}>{{stageLabel .}}</option>{{end}}
+    </select></div>
+  <button class="btn secondary" type="submit">Filtrar</button>
+  {{if .Data.Filtered}}<a class="btn ghost" href="/leads">Limpar</a>{{end}}
+</form>
+
+{{if .Data.Leads}}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Lead</th><th>Celular</th><th>Estágio</th><th>Etapa</th><th>Unidade</th><th>Mensagens</th></tr></thead>
+    <tbody>
+      {{range .Data.Leads}}
+      <tr>
+        <td><div class="person"><span class="avatar">{{initials .Nome}}</span><div><a class="row-link" href="/leads/{{.ID}}">{{.Nome}}</a>{{if .Email}}<span>{{.Email}}</span>{{end}}</div></div></td>
+        <td class="mono">{{phone .Celular}}</td>
+        <td><span class="chip muted">{{stageLabel .Estagio}}</span></td>
+        <td>{{.StepName}}<br><span class="muted small">{{.FlowName}}</span></td>
+        <td>{{.UnitName}}</td>
+        <td>{{if .OptOut}}<span class="chip warn">{{icon "ban"}}Opt-out</span>{{else}}<span class="chip ok">Pode receber</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<div class="card empty">
+  <span class="art">{{icon "users"}}</span>
+  <h2>{{if .Data.Filtered}}Nenhum lead com esses filtros{{else}}Ainda não há leads{{end}}</h2>
+  <p>{{if .Data.Filtered}}Tente outro nome ou limpe os filtros.{{else}}Crie o primeiro lead para ver o funil funcionando.{{end}}</p>
+  {{if .Data.Filtered}}<a class="btn secondary" href="/leads">Limpar filtros</a>{{else}}<a class="btn" href="/leads/novo">{{icon "plus"}}Novo lead</a>{{end}}
+</div>
+{{end}}
+{{end}}

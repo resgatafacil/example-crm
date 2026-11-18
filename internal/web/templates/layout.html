@@ -1,0 +1,49 @@
+{{define "layout"}}<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>{{.Title}} · Funil Demo</title>
+  <link rel="icon" type="image/svg+xml" href="/static/img/funil.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Pular para o conteúdo</a>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/static/img/funil.svg" alt="">Funil Demo</a>
+    <button type="button" data-nav-toggle aria-label="Abrir o menu" aria-expanded="false" aria-controls="sidebar">{{icon "menu"}}</button>
+  </header>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="/"><img src="/static/img/funil.svg" alt=""><span>Funil Demo<small>CRM de exemplo</small></span></a>
+      <nav class="nav" aria-label="Principal">
+        <div class="nav-group">
+          <div class="nav-title">CRM</div>
+          <a href="/"{{if eq .Active "dashboard"}} aria-current="page"{{end}}>{{icon "home"}}Início</a>
+          <a href="/funil"{{if eq .Active "board"}} aria-current="page"{{end}}>{{icon "board"}}Funil</a>
+          <a href="/leads"{{if eq .Active "leads"}} aria-current="page"{{end}}>{{icon "users"}}Leads</a>
+          <a href="/chaves"{{if eq .Active "keys"}} aria-current="page"{{end}}>{{icon "key"}}Chaves da API</a>
+        </div>
+        <div class="nav-group" style="margin-top:18px">
+          <div class="nav-title"><img src="/static/img/resgata-icon.png" alt="">Resgata Fácil</div>
+          <a href="/integracao"{{if eq .Active "connection"}} aria-current="page"{{end}}>{{icon "plug"}}Integração
+            {{if .Resgata.Connected}}<span class="dot on" title="Conectado"></span>{{else if .Resgata.Revoked}}<span class="dot off" title="Desconectado"></span>{{else}}<span class="dot" title="Não conectado"></span>{{end}}
+          </a>
+          <a href="/eventos"{{if eq .Active "events"}} aria-current="page"{{end}}>{{icon "bolt"}}Eventos</a>
+          {{if .Config.Sandbox}}<a href="/sandbox"{{if eq .Active "sandbox"}} aria-current="page"{{end}}>{{icon "flask"}}Sandbox</a>{{end}}
+        </div>
+      </nav>
+      <div class="sidebar-foot">Ambiente Resgata: <b>{{.Config.Environment}}</b><br>Demonstração: dados fictícios.</div>
+    </aside>
+    <main id="main" class="main">
+      {{with .Flash}}<div class="flash {{.Kind}}" role="{{if eq .Kind "error"}}alert{{else}}status{{end}}">{{if eq .Kind "error"}}{{icon "alert"}}{{else}}{{icon "check"}}{{end}}<span>{{.Message}}</span></div>{{end}}
+      {{template "content" .}}
+    </main>
+  </div>
+</body>
+</html>{{end}}
