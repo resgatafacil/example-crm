@@ -72,6 +72,12 @@ func New(opts Options) *Mock {
 	return &Mock{opts: opts, codes: map[string]authCode{}, conns: map[string]*connection{}, client: &http.Client{Timeout: 5 * time.Second}}
 }
 
+func (m *Mock) SentTypes() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.Sent...)
+}
+
 func (m *Mock) SetWebhook(target, secret string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

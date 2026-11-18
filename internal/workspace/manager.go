@@ -60,6 +60,16 @@ func NewManager(dataDir string, max int) (*Manager, error) {
 	return &Manager{dir: dir, reg: reg, max: max, now: time.Now, open: map[string]*store.Store{}, touched: map[string]time.Time{}}, nil
 }
 
+func (m *Manager) Files(id string) []string {
+	var found []string
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if _, err := os.Stat(m.path(id) + suffix); err == nil {
+			found = append(found, m.path(id)+suffix)
+		}
+	}
+	return found
+}
+
 func (m *Manager) SetClock(now func() time.Time) {
 	m.now = now
 }
