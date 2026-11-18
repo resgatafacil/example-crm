@@ -8,6 +8,8 @@ import (
 
 var iconPaths = map[string]string{
 	"home":     `<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>`,
+	"lock":     `<rect x="4" y="10" width="16" height="11" rx="2.5"/><path d="M8 10V7a4 4 0 018 0v3"/><path d="M12 15v2"/>`,
+	"logout":   `<path d="M9 4H5.5A1.5 1.5 0 004 5.5v13A1.5 1.5 0 005.5 20H9"/><path d="M16 8l4 4-4 4"/><path d="M20 12H9"/>`,
 	"board":    `<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/>`,
 	"users":    `<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.5a3.5 3.5 0 010 7"/><path d="M18 14.3c2 .8 3.5 2.6 3.5 5.7"/>`,
 	"plug":     `<path d="M9 3v5M15 3v5"/><path d="M6 8h12v3a6 6 0 01-12 0V8z"/><path d="M12 17v4"/>`,

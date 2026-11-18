@@ -69,7 +69,7 @@ func newEnv(t *testing.T, adminPassword string) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := New(cfg, st, box, resgata.NewClient(cfg.APIURL, nil))
+	server, err := New(cfg, Backend{Local: st}, box, resgata.NewClient(cfg.APIURL, nil))
 	if err != nil {
 		t.Fatal(err)
 	}

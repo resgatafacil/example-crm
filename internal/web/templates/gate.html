@@ -1,0 +1,41 @@
+{{define "gate"}}<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>{{.Title}} · Funil Demo</title>
+  <link rel="icon" type="image/svg+xml" href="/static/img/funil.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="auth-wrap">
+    <div class="auth-card gate">
+      <div class="row gate-brand">
+        <img src="/static/img/funil.svg" alt="" width="36" height="36">
+        <b>Funil Demo</b>
+        <span class="chip brand right"><img src="/static/img/resgata-icon.png" alt="">Portal de desenvolvedores</span>
+      </div>
+      <div class="gate-body" role="{{if eq .Kind "signed_out"}}status{{else}}alert{{end}}">
+        <div class="gate-icon {{.Kind}}">{{if eq .Kind "full"}}{{icon "users"}}{{else if eq .Kind "signed_out"}}{{icon "lock"}}{{else}}{{icon "alert"}}{{end}}</div>
+        <h1>{{.Title}}</h1>
+        <p class="muted">{{.Message}}</p>
+      </div>
+      {{if eq .Kind "signed_out"}}
+      <ol class="gate-steps">
+        <li><span>1</span>Entre no portal de desenvolvedores do Resgata Fácil.</li>
+        <li><span>2</span>Clique em <b>Exemplo</b> no menu.</li>
+        <li><span>3</span>Explore o OAuth, a API e os webhooks com dados de teste.</li>
+      </ol>
+      {{end}}
+      <div class="row">
+        <a class="btn" href="{{.PortalURL}}" rel="noopener">{{icon "external"}}{{if eq .Kind "full"}}Voltar ao portal{{else}}Ir para o portal de desenvolvedores{{end}}</a>
+      </div>
+      <p class="small muted">A área de trabalho é privada, usa só o sandbox e é apagada depois de {{.TTLHours}} h sem uso.</p>
+    </div>
+  </main>
+</body>
+</html>{{end}}

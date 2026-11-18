@@ -34,7 +34,7 @@ func newFixture(t *testing.T, limit int) *fixture {
 	}
 	limiter := NewLimiter(limit, time.Minute)
 	mux := http.NewServeMux()
-	New(s, limiter).Register(mux)
+	New(Fixed(s), limiter).Register(mux)
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	return &fixture{t: t, store: s, server: server, limiter: limiter, key: key}

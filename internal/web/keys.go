@@ -17,12 +17,12 @@ type keysData struct {
 	RateLimit int
 }
 
-func (s *Server) keysData() (keysData, error) {
-	keys, err := s.store.APIKeys()
+func (s *Server) keysData(r *http.Request) (keysData, error) {
+	keys, err := s.st(r).APIKeys()
 	if err != nil {
 		return keysData{}, err
 	}
-	units, err := s.store.Units()
+	units, err := s.st(r).Units()
 	if err != nil {
 		return keysData{}, err
 	}
@@ -30,7 +30,7 @@ func (s *Server) keysData() (keysData, error) {
 }
 
 func (s *Server) keys(w http.ResponseWriter, r *http.Request) {
-	data, err := s.keysData()
+	data, err := s.keysData(r)
 	if err != nil {
 		s.serverError(w, err)
 		return
@@ -45,16 +45,16 @@ func (s *Server) keyCreate(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "Integração Resgata Fácil"
 	}
-	if _, ok, _ := s.store.Unit(unitID); !ok {
+	if _, ok, _ := s.st(r).Unit(unitID); !ok {
 		s.redirect(w, r, "/chaves", "error", "Escolha uma unidade para a chave.")
 		return
 	}
-	secret, err := s.store.CreateAPIKey(unitID, name)
+	secret, err := s.st(r).CreateAPIKey(unitID, name)
 	if err != nil {
 		s.serverError(w, err)
 		return
 	}
-	data, err := s.keysData()
+	data, err := s.keysData(r)
 	if err != nil {
 		s.serverError(w, err)
 		return
@@ -65,7 +65,7 @@ func (s *Server) keyCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) keyRevoke(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteAPIKey(r.PathValue("id")); err != nil {
+	if err := s.st(r).DeleteAPIKey(r.PathValue("id")); err != nil {
 		s.serverError(w, err)
 		return
 	}

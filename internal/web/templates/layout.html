@@ -41,6 +41,19 @@
       <div class="sidebar-foot">Ambiente Resgata: <b>{{.Config.Environment}}</b><br>Demonstração: dados fictícios.</div>
     </aside>
     <main id="main" class="main">
+      {{with .Portal}}
+      <section class="workspace-bar" aria-label="Sua área de trabalho">
+        <div class="avatar" aria-hidden="true">{{.Initial}}</div>
+        <div class="who">
+          <b>Olá, {{.First}}</b>
+          <span>Esta área de trabalho é só sua: roda no sandbox do Resgata Fácil e é reiniciada depois de {{.TTLHours}} h sem uso.</span>
+        </div>
+        <div class="actions">
+          <form method="post" action="/reiniciar" data-confirm="Reiniciar apaga seus leads, chaves e a conexão com o Resgata Fácil e volta aos dados de exemplo. Continuar?"><button class="btn secondary small" type="submit">{{icon "refresh"}}Reiniciar</button></form>
+          <form method="post" action="/sair"><button class="btn ghost small" type="submit" data-no-loading>{{icon "logout"}}Sair</button></form>
+        </div>
+      </section>
+      {{end}}
       {{with .Flash}}<div class="flash {{.Kind}}" role="{{if eq .Kind "error"}}alert{{else}}status{{end}}">{{if eq .Kind "error"}}{{icon "alert"}}{{else}}{{icon "check"}}{{end}}<span>{{.Message}}</span></div>{{end}}
       {{template "content" .}}
     </main>

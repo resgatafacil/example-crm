@@ -10,13 +10,27 @@ import (
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
-type API struct {
-	store   *store.Store
-	limiter *Limiter
+type Resolver interface {
+	StoreForKey(secret string) (*store.Store, bool)
 }
 
-func New(s *store.Store, limiter *Limiter) *API {
-	return &API{store: s, limiter: limiter}
+type fixed struct{ st *store.Store }
+
+func (f fixed) StoreForKey(string) (*store.Store, bool) {
+	return f.st, true
+}
+
+func Fixed(st *store.Store) Resolver {
+	return fixed{st: st}
+}
+
+type API struct {
+	resolver Resolver
+	limiter  *Limiter
+}
+
+func New(resolver Resolver, limiter *Limiter) *API {
+	return &API{resolver: resolver, limiter: limiter}
 }
 
 func (a *API) Register(mux *http.ServeMux) {
@@ -33,7 +47,7 @@ type field struct {
 	Motivo string `json:"motivo"`
 }
 
-type authedHandler func(w http.ResponseWriter, r *http.Request, key store.APIKey, unit store.Unit)
+type authedHandler func(w http.ResponseWriter, r *http.Request, st *store.Store, unit store.Unit)
 
 func (a *API) authenticated(next authedHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +56,12 @@ func (a *API) authenticated(next authedHandler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "Chave ausente ou inválida.", nil)
 			return
 		}
-		key, found, err := a.store.AuthenticateKey(secret)
+		st, resolved := a.resolver.StoreForKey(secret)
+		if !resolved {
+			writeError(w, http.StatusUnauthorized, "Chave ausente ou inválida.", nil)
+			return
+		}
+		key, found, err := st.AuthenticateKey(secret)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Erro interno.", nil)
 			return
@@ -62,7 +81,7 @@ func (a *API) authenticated(next authedHandler) http.Handler {
 			return
 		}
 
-		unit, found, err := a.store.Unit(key.UnitID)
+		unit, found, err := st.Unit(key.UnitID)
 		if err != nil || !found {
 			writeError(w, http.StatusInternalServerError, "Erro interno.", nil)
 			return
@@ -71,7 +90,7 @@ func (a *API) authenticated(next authedHandler) http.Handler {
 			writeError(w, http.StatusForbidden, "A unidade desta chave está com o acesso suspenso.", nil)
 			return
 		}
-		next(w, r, key, unit)
+		next(w, r, st, unit)
 	})
 }
 
@@ -90,12 +109,12 @@ func ceilSeconds(d time.Duration) int {
 	return seconds
 }
 
-func (a *API) units(w http.ResponseWriter, _ *http.Request, _ store.APIKey, unit store.Unit) {
+func (a *API) units(w http.ResponseWriter, _ *http.Request, _ *store.Store, unit store.Unit) {
 	writeJSON(w, http.StatusOK, map[string]any{"dados": []any{unitJSON(unit)}})
 }
 
-func (a *API) flows(w http.ResponseWriter, _ *http.Request, _ store.APIKey, _ store.Unit) {
-	flows, err := a.store.Flows()
+func (a *API) flows(w http.ResponseWriter, _ *http.Request, st *store.Store, _ store.Unit) {
+	flows, err := st.Flows()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Erro interno.", nil)
 		return
@@ -103,8 +122,8 @@ func (a *API) flows(w http.ResponseWriter, _ *http.Request, _ store.APIKey, _ st
 	out := make([]any, 0, len(flows))
 	for _, f := range flows {
 		steps := make([]any, 0, len(f.Steps))
-		for _, st := range f.Steps {
-			steps = append(steps, map[string]any{"id": st.ID, "nome": st.Nome, "ordem": st.Ordem, "inicial": st.Inicial})
+		for _, step := range f.Steps {
+			steps = append(steps, map[string]any{"id": step.ID, "nome": step.Nome, "ordem": step.Ordem, "inicial": step.Inicial})
 		}
 		out = append(out, map[string]any{"id": f.ID, "nome": f.Nome, "ativo": f.Ativo, "etapas": steps})
 	}
@@ -116,7 +135,7 @@ const (
 	maxLimit     = 500
 )
 
-func (a *API) leads(w http.ResponseWriter, r *http.Request, _ store.APIKey, unit store.Unit) {
+func (a *API) leads(w http.ResponseWriter, r *http.Request, st *store.Store, unit store.Unit) {
 	query := r.URL.Query()
 	filter := store.LeadFilter{
 		UnitID: unit.ID,
@@ -148,7 +167,7 @@ func (a *API) leads(w http.ResponseWriter, r *http.Request, _ store.APIKey, unit
 		return
 	}
 
-	page, err := a.store.LeadsPage(filter)
+	page, err := st.LeadsPage(filter)
 	if err == store.ErrBadCursor {
 		writeError(w, http.StatusUnprocessableEntity, "Parâmetros inválidos.", []field{{"cursor", "cursor inválido ou expirado"}})
 		return

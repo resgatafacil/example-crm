@@ -24,15 +24,15 @@ type dashboardData struct {
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
-	stats, err := s.store.Stats()
+	stats, err := s.st(r).Stats()
 	if err != nil {
 		s.serverError(w, err)
 		return
 	}
-	conn, _, _ := s.store.Connection()
-	validEvents, _ := s.store.CountValidEvents()
-	sent, _ := s.store.HasOutboundMessage()
-	recent, _ := s.store.Events("", 6)
+	conn, _, _ := s.st(r).Connection()
+	validEvents, _ := s.st(r).CountValidEvents()
+	sent, _ := s.st(r).HasOutboundMessage()
+	recent, _ := s.st(r).Events("", 6)
 
 	checklist := []checklistItem{
 		{Title: "Criar o aplicativo no portal de desenvolvedores", Hint: "Cadastre o redirect URI " + s.cfg.RedirectURI() + " e copie o client_id.", Done: s.cfg.ClientID != ""},
@@ -65,7 +65,7 @@ type boardData struct {
 }
 
 func (s *Server) board(w http.ResponseWriter, r *http.Request) {
-	flows, err := s.store.Flows()
+	flows, err := s.st(r).Flows()
 	if err != nil || len(flows) == 0 {
 		s.serverError(w, err)
 		return
@@ -76,7 +76,7 @@ func (s *Server) board(w http.ResponseWriter, r *http.Request) {
 			current = f
 		}
 	}
-	page, err := s.store.LeadsPage(store.LeadFilter{FlowID: current.ID, Limit: 500})
+	page, err := s.st(r).LeadsPage(store.LeadFilter{FlowID: current.ID, Limit: 500})
 	if err != nil {
 		s.serverError(w, err)
 		return
@@ -111,12 +111,12 @@ type leadsData struct {
 func (s *Server) leads(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filter := store.LeadFilter{Search: strings.TrimSpace(q.Get("q")), UnitID: q.Get("unidade"), Stage: q.Get("estagio"), Limit: 200}
-	page, err := s.store.LeadsPage(filter)
+	page, err := s.st(r).LeadsPage(filter)
 	if err != nil {
 		s.serverError(w, err)
 		return
 	}
-	units, _ := s.store.Units()
+	units, _ := s.st(r).Units()
 	s.render(w, r, "leads", "Leads", "leads", leadsData{
 		Leads: page.Leads, Units: units, Query: filter.Search, Unit: filter.UnitID, Stage: filter.Stage,
 		Filtered: filter.Search != "" || filter.UnitID != "" || filter.Stage != "",

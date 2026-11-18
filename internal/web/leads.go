@@ -18,12 +18,12 @@ type leadFormData struct {
 
 func (s *Server) leadForm(w http.ResponseWriter, r *http.Request) {
 	data := leadFormData{Errors: map[string]string{}, Lead: store.LeadInput{Estagio: "lead"}}
-	data.Units, _ = s.store.Units()
-	data.Flows, _ = s.store.Flows()
+	data.Units, _ = s.st(r).Units()
+	data.Flows, _ = s.st(r).Flows()
 
 	title := "Novo lead"
 	if id := r.PathValue("id"); id != "" {
-		lead, found, err := s.store.Lead(id)
+		lead, found, err := s.st(r).Lead(id)
 		if err != nil {
 			s.serverError(w, err)
 			return
@@ -67,10 +67,10 @@ func (s *Server) readLeadForm(r *http.Request) (store.LeadInput, map[string]stri
 	if !validStage(in.Estagio) {
 		errs["estagio"] = "Escolha um estágio."
 	}
-	if _, ok, _ := s.store.Unit(in.UnitID); !ok {
+	if _, ok, _ := s.st(r).Unit(in.UnitID); !ok {
 		errs["unidade"] = "Escolha uma unidade."
 	}
-	if _, ok, _ := s.store.Step(in.StepID); !ok {
+	if _, ok, _ := s.st(r).Step(in.StepID); !ok {
 		errs["etapa"] = "Escolha uma etapa."
 	}
 	return in, errs
@@ -91,7 +91,7 @@ func (s *Server) leadCreate(w http.ResponseWriter, r *http.Request) {
 		s.renderLeadFormErrors(w, r, "", in, errs, "Novo lead")
 		return
 	}
-	id, err := s.store.CreateLead(in)
+	id, err := s.st(r).CreateLead(in)
 	if err != nil {
 		s.serverError(w, err)
 		return
@@ -106,11 +106,11 @@ func (s *Server) leadUpdate(w http.ResponseWriter, r *http.Request) {
 		s.renderLeadFormErrors(w, r, id, in, errs, "Editar lead")
 		return
 	}
-	if err := s.store.UpdateLead(id, in); err != nil {
+	if err := s.st(r).UpdateLead(id, in); err != nil {
 		s.serverError(w, err)
 		return
 	}
-	if err := s.store.MoveLead(id, in.StepID); err != nil {
+	if err := s.st(r).MoveLead(id, in.StepID); err != nil {
 		s.serverError(w, err)
 		return
 	}
@@ -119,8 +119,8 @@ func (s *Server) leadUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) renderLeadFormErrors(w http.ResponseWriter, r *http.Request, id string, in store.LeadInput, errs map[string]string, title string) {
 	data := leadFormData{Lead: in, ID: id, Errors: errs}
-	data.Units, _ = s.store.Units()
-	data.Flows, _ = s.store.Flows()
+	data.Units, _ = s.st(r).Units()
+	data.Flows, _ = s.st(r).Flows()
 	w.WriteHeader(http.StatusUnprocessableEntity)
 	s.render(w, r, "lead_form", title, "leads", data)
 }
@@ -137,7 +137,7 @@ type leadData struct {
 }
 
 func (s *Server) loadLead(w http.ResponseWriter, r *http.Request) (store.Lead, bool) {
-	lead, found, err := s.store.Lead(r.PathValue("id"))
+	lead, found, err := s.st(r).Lead(r.PathValue("id"))
 	if err != nil {
 		s.serverError(w, err)
 		return lead, false
@@ -155,11 +155,11 @@ func (s *Server) lead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := leadData{Lead: lead, Sandbox: s.cfg.Sandbox()}
-	data.Timeline, _ = s.store.Timeline(lead.ID)
-	data.Flows, _ = s.store.Flows()
-	data.Pending, _ = s.store.HasPendingMessages(lead.ID)
+	data.Timeline, _ = s.st(r).Timeline(lead.ID)
+	data.Flows, _ = s.st(r).Flows()
+	data.Pending, _ = s.st(r).HasPendingMessages(lead.ID)
 
-	if _, token, connected := s.token(); connected {
+	if _, token, connected := s.token(r); connected {
 		data.Connected = true
 		ctx, cancel := s.apiContext(r)
 		defer cancel()
@@ -178,8 +178,8 @@ func (s *Server) leadTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := leadData{Lead: lead}
-	data.Timeline, _ = s.store.Timeline(lead.ID)
-	data.Pending, _ = s.store.HasPendingMessages(lead.ID)
+	data.Timeline, _ = s.st(r).Timeline(lead.ID)
+	data.Pending, _ = s.st(r).HasPendingMessages(lead.ID)
 	s.fragment(w, "timeline", data)
 }
 
@@ -190,16 +190,16 @@ func (s *Server) leadMove(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.ParseForm()
 	stepID := r.FormValue("etapa")
-	step, found, err := s.store.Step(stepID)
+	step, found, err := s.st(r).Step(stepID)
 	if err != nil || !found {
 		s.redirect(w, r, "/funil", "error", "Etapa não encontrada.")
 		return
 	}
-	if err := s.store.MoveLead(lead.ID, stepID); err != nil {
+	if err := s.st(r).MoveLead(lead.ID, stepID); err != nil {
 		s.serverError(w, err)
 		return
 	}
-	if _, err := s.store.AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindStep, Body: "Movido para " + step.Nome + "."}); err != nil {
+	if _, err := s.st(r).AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindStep, Body: "Movido para " + step.Nome + "."}); err != nil {
 		s.serverError(w, err)
 		return
 	}
@@ -223,7 +223,7 @@ func (s *Server) leadNote(w http.ResponseWriter, r *http.Request) {
 		s.redirect(w, r, "/leads/"+lead.ID, "error", "Escreva a nota antes de salvar.")
 		return
 	}
-	if _, err := s.store.AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindNote, Body: text}); err != nil {
+	if _, err := s.st(r).AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindNote, Body: text}); err != nil {
 		s.serverError(w, err)
 		return
 	}
@@ -247,7 +247,7 @@ func (s *Server) leadMessage(w http.ResponseWriter, r *http.Request) {
 		s.redirect(w, r, back, "error", "Escreva a mensagem (até 1000 caracteres).")
 		return
 	}
-	_, token, connected := s.token()
+	_, token, connected := s.token(r)
 	if !connected {
 		s.redirect(w, r, back, "error", "Conecte o CRM ao Resgata Fácil antes de enviar mensagens.")
 		return
@@ -275,7 +275,7 @@ func (s *Server) leadMessage(w http.ResponseWriter, r *http.Request) {
 	if status == "" {
 		status = "queued"
 	}
-	if _, err := s.store.AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindMessageOut, Body: text, Status: status, ExternalID: message.ID}); err != nil {
+	if _, err := s.st(r).AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindMessageOut, Body: text, Status: status, ExternalID: message.ID}); err != nil {
 		s.serverError(w, err)
 		return
 	}

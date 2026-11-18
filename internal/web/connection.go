@@ -27,7 +27,7 @@ type connectionData struct {
 }
 
 func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
-	conn, found, err := s.store.Connection()
+	conn, found, err := s.st(r).Connection()
 	if err != nil {
 		s.serverError(w, err)
 		return
@@ -39,9 +39,9 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	if found {
 		data.State = conn.State
 	}
-	data.LastEvent, data.HasEvent, _ = s.store.LastValidEvent()
+	data.LastEvent, data.HasEvent, _ = s.st(r).LastValidEvent()
 
-	if _, token, connected := s.token(); connected {
+	if _, token, connected := s.token(r); connected {
 		s.loadLive(r, token, &data)
 	}
 	s.render(w, r, "connection", "Integração com o Resgata Fácil", "connection", data)
@@ -53,7 +53,7 @@ func (s *Server) loadLive(r *http.Request, token string, data *connectionData) {
 
 	live, err := s.client.Connection(ctx, token)
 	if resgata.IsStatus(err, http.StatusUnauthorized) {
-		_ = s.store.RevokeConnection()
+		_ = s.st(r).RevokeConnection()
 		data.State = store.StateRevoked
 		return
 	}
@@ -63,7 +63,7 @@ func (s *Server) loadLive(r *http.Request, token string, data *connectionData) {
 	}
 	data.Live = live
 	if live.Status == "revoked" {
-		_ = s.store.RevokeConnection()
+		_ = s.st(r).RevokeConnection()
 		data.State = store.StateRevoked
 		return
 	}
@@ -95,11 +95,11 @@ type eventsData struct {
 
 func (s *Server) loadEvents(r *http.Request) (eventsData, error) {
 	selected := strings.TrimSpace(r.URL.Query().Get("tipo"))
-	rows, err := s.store.Events(selected, 100)
+	rows, err := s.st(r).Events(selected, 100)
 	if err != nil {
 		return eventsData{}, err
 	}
-	types, _ := s.store.EventTypes()
+	types, _ := s.st(r).EventTypes()
 	data := eventsData{Types: types, Selected: selected, Total: len(rows)}
 	for _, e := range rows {
 		data.Rows = append(data.Rows, eventRow{Event: e, Payload: prettyJSON(e.Payload)})

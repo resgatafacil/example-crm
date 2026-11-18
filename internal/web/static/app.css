@@ -265,3 +265,32 @@ pre.light { background: #f6f8f7; color: var(--text); border: 1px solid var(--bor
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+.workspace-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 12px 16px; margin-bottom: 20px; background: linear-gradient(135deg, #f1fbea, #ffffff 70%); border: 1px solid #cfe9c4; border-radius: var(--radius); }
+.workspace-bar .avatar { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--primary); color: #eafff2; font-weight: 700; text-transform: uppercase; }
+.workspace-bar .who { flex: 1 1 280px; min-width: 0; display: grid; gap: 2px; }
+.workspace-bar .who b { color: var(--primary); font-size: 15px; }
+.workspace-bar .who span { color: var(--muted); font-size: 12.5px; }
+.workspace-bar .actions { display: flex; gap: 6px; margin-left: auto; }
+.workspace-bar form { margin: 0; }
+
+.gate { gap: 22px; }
+.gate-brand b { font-size: 18px; color: var(--primary); }
+.gate-body { display: grid; gap: 10px; }
+.gate-body h1 { font-size: 26px; }
+.gate-body p { max-width: 52ch; }
+.gate-icon { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: #e6f7ee; color: var(--success); }
+.gate-icon .icon { width: 24px; height: 24px; }
+.gate-icon.expired, .gate-icon.invalid { background: #fdf1dc; color: var(--warning); }
+.gate-icon.full { background: #e6f0fb; color: var(--info); }
+.gate-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.gate-steps li { display: flex; align-items: center; gap: 12px; }
+.gate-steps li span { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--primary); font-weight: 700; font-size: 12.5px; }
+
+@media (max-width: 560px) {
+  .workspace-bar { padding: 12px; }
+  .workspace-bar .actions { margin-left: 0; width: 100%; }
+  .gate-body h1 { font-size: 22px; }
+  .auth-card { padding: 22px; }
+  .gate .btn { width: 100%; }
+}

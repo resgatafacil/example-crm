@@ -31,8 +31,12 @@ func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 	if err := resgata.Verify(s.cfg.WebhookSecret, r.Header.Get(resgata.SignatureHeader), body, s.now()); err != nil {
 		record.EventID = ""
 		record.Reason = err.Error()
-		if _, _, storeErr := s.store.ReceiveEvent(record); storeErr != nil {
-			log.Printf("storing rejected webhook: %v", storeErr)
+		if s.local != nil {
+			if _, _, storeErr := s.local.ReceiveEvent(record); storeErr != nil {
+				log.Printf("storing rejected webhook: %v", storeErr)
+			}
+		} else {
+			log.Printf("webhook rejected: %v", err)
 		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
@@ -42,7 +46,9 @@ func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &event); err != nil {
 		record.Reason = "corpo não é um evento JSON válido"
 		record.SignatureOK = true
-		_, _, _ = s.store.ReceiveEvent(record)
+		if s.local != nil {
+			_, _, _ = s.local.ReceiveEvent(record)
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": record.Reason})
 		return
 	}
@@ -52,7 +58,21 @@ func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 	record.Type = event.Type
 	record.SignatureOK = true
 
-	stored, isNew, err := s.store.ReceiveEvent(record)
+	st, routed := s.storeForEvent(event)
+	if !routed {
+		log.Printf("webhook %s %s ignored: no workspace for external_ref %q", event.Type, event.ID, event.Connection.ExternalRef)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+		return
+	}
+
+	if s.cfg.PortalMode() && event.Type == resgata.EventConnectionRevoked {
+		if _, hasConnection, _ := st.Connection(); !hasConnection {
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
+			return
+		}
+	}
+
+	stored, isNew, err := st.ReceiveEvent(record)
 	if err != nil {
 		s.serverError(w, err)
 		return
@@ -62,13 +82,13 @@ func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outcome, err := events.Apply(s.store, event)
+	outcome, err := events.Apply(st, event)
 	if err != nil {
 		log.Printf("applying %s %s: %v", event.Type, event.ID, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao processar, tente de novo"})
 		return
 	}
-	if err := s.store.MarkEventProcessed(stored.ID, outcome); err != nil {
+	if err := st.MarkEventProcessed(stored.ID, outcome); err != nil {
 		s.serverError(w, err)
 		return
 	}

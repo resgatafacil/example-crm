@@ -39,9 +39,9 @@ func (s *Server) sandbox(w http.ResponseWriter, r *http.Request) {
 		s.redirect(w, r, "/integracao", "error", "As ferramentas de sandbox só aparecem quando RESGATA_ENVIRONMENT=sandbox.")
 		return
 	}
-	page, _ := s.store.LeadsPage(store.LeadFilter{Limit: 200})
+	page, _ := s.st(r).LeadsPage(store.LeadFilter{Limit: 200})
 	data := sandboxData{Leads: page.Leads, Magic: magicNumbers, WebhookURL: s.cfg.WebhookURL(), RedirectURI: s.cfg.RedirectURI()}
-	if _, token, connected := s.token(); connected {
+	if _, token, connected := s.token(r); connected {
 		data.Connected = true
 		ctx, cancel := s.apiContext(r)
 		defer cancel()
@@ -59,7 +59,7 @@ func (s *Server) sandboxCall(w http.ResponseWriter, r *http.Request, success str
 		s.redirect(w, r, "/integracao", "error", "As ferramentas de sandbox só existem com RESGATA_ENVIRONMENT=sandbox.")
 		return
 	}
-	_, token, connected := s.token()
+	_, token, connected := s.token(r)
 	if !connected {
 		s.redirect(w, r, "/integracao", "error", "Conecte o CRM ao Resgata Fácil antes de usar o sandbox.")
 		return
@@ -67,7 +67,7 @@ func (s *Server) sandboxCall(w http.ResponseWriter, r *http.Request, success str
 	_ = r.ParseForm()
 	phone := strings.TrimSpace(r.FormValue("telefone"))
 	if leadID := r.FormValue("lead"); leadID != "" {
-		lead, found, err := s.store.Lead(leadID)
+		lead, found, err := s.st(r).Lead(leadID)
 		if err != nil || !found {
 			s.redirect(w, r, "/sandbox", "error", "Lead não encontrado.")
 			return

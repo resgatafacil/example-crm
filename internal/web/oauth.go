@@ -13,7 +13,7 @@ const oauthStateMaxAge = 10 * time.Minute
 func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {
 	state := resgata.NewState()
 	verifier := resgata.NewVerifier()
-	if err := s.store.SaveOAuthState(state, verifier); err != nil {
+	if err := s.st(r).SaveOAuthState(state, verifier); err != nil {
 		s.serverError(w, err)
 		return
 	}
@@ -22,7 +22,7 @@ func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {
 		RedirectURI: s.cfg.RedirectURI(),
 		State:       state,
 		Verifier:    verifier,
-		ExternalRef: externalRef,
+		ExternalRef: s.externalRef(r),
 		Scopes:      resgata.DefaultScopes,
 	})
 	http.Redirect(w, r, target, http.StatusSeeOther)
@@ -31,7 +31,7 @@ func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {
 func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
-	verifier, ok, err := s.store.ConsumeOAuthState(query.Get("state"), oauthStateMaxAge)
+	verifier, ok, err := s.st(r).ConsumeOAuthState(query.Get("state"), oauthStateMaxAge)
 	if err != nil {
 		s.serverError(w, err)
 		return
@@ -57,19 +57,19 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		s.redirect(w, r, "/integracao", "error", s.describeAPIError(err))
 		return
 	}
-	if err := s.saveToken(result); err != nil {
+	if err := s.saveToken(r, result); err != nil {
 		s.serverError(w, err)
 		return
 	}
 	s.redirect(w, r, "/integracao", "success", "Conectado ao Resgata Fácil. Agora complete os passos abaixo.")
 }
 
-func (s *Server) saveToken(result resgata.Token) error {
+func (s *Server) saveToken(r *http.Request, result resgata.Token) error {
 	sealed, err := s.box.Seal(result.AccessToken)
 	if err != nil {
 		return err
 	}
-	return s.store.SaveConnection(store.Connection{
+	return s.st(r).SaveConnection(store.Connection{
 		ConnectionID:   result.ConnectionID,
 		TokenEncrypted: sealed,
 		Scope:          result.Scope,
@@ -86,7 +86,7 @@ func (s *Server) connectWithAppKey(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.apiContext(r)
 	defer cancel()
 
-	conn, err := s.client.CreateSandboxConnection(ctx, s.cfg.AppKey, externalRef)
+	conn, err := s.client.CreateSandboxConnection(ctx, s.cfg.AppKey, s.externalRef(r))
 	if resgata.IsType(err, "external_ref_in_use") {
 		s.redirect(w, r, "/integracao", "error", "Já existe uma conexão de sandbox para esta demo. Use Conectar (OAuth) para reaproveitá-la.")
 		return
@@ -100,7 +100,7 @@ func (s *Server) connectWithAppKey(w http.ResponseWriter, r *http.Request) {
 		s.redirect(w, r, "/integracao", "error", s.describeAPIError(err))
 		return
 	}
-	if err := s.saveToken(resgata.Token{AccessToken: secret, ConnectionID: conn.ID, ExternalRef: conn.ExternalRef}); err != nil {
+	if err := s.saveToken(r, resgata.Token{AccessToken: secret, ConnectionID: conn.ID, ExternalRef: conn.ExternalRef}); err != nil {
 		s.serverError(w, err)
 		return
 	}
@@ -108,7 +108,7 @@ func (s *Server) connectWithAppKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
-	_, token, ok := s.token()
+	_, token, ok := s.token(r)
 	if ok {
 		ctx, cancel := s.apiContext(r)
 		defer cancel()
@@ -117,7 +117,7 @@ func (s *Server) disconnect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.store.RevokeConnection(); err != nil {
+	if err := s.st(r).RevokeConnection(); err != nil {
 		s.serverError(w, err)
 		return
 	}

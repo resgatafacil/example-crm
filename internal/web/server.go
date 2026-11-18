@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -18,8 +19,10 @@ import (
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/config"
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/crmapi"
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/crypto"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/portal"
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/workspace"
 )
 
 //go:embed templates/*.html
@@ -29,29 +32,48 @@ var templateFiles embed.FS
 var staticFiles embed.FS
 
 const (
-	externalRef  = "funil-demo"
 	flashCookie  = "flash"
 	apiTimeout   = 15 * time.Second
 	maxBodyBytes = 1 << 20
 )
 
-type Server struct {
-	cfg     config.Config
-	store   *store.Store
-	box     *crypto.Box
-	client  *resgata.Client
-	pages   map[string]*template.Template
-	loc     *time.Location
-	now     func() time.Time
-	limiter *crmapi.Limiter
+type Backend struct {
+	Local      *store.Store
+	Workspaces *workspace.Manager
 }
 
-func New(cfg config.Config, st *store.Store, box *crypto.Box, client *resgata.Client) (*Server, error) {
+type Server struct {
+	cfg      config.Config
+	local    *store.Store
+	ws       *workspace.Manager
+	sessions *portal.Sessions
+	replay   *portal.ReplayGuard
+	box      *crypto.Box
+	client   *resgata.Client
+	pages    map[string]*template.Template
+	loc      *time.Location
+	now      func() time.Time
+	limiter  *crmapi.Limiter
+}
+
+func New(cfg config.Config, backend Backend, box *crypto.Box, client *resgata.Client) (*Server, error) {
 	loc, err := time.LoadLocation("America/Sao_Paulo")
 	if err != nil {
 		loc = time.UTC
 	}
-	s := &Server{cfg: cfg, store: st, box: box, client: client, loc: loc, now: time.Now}
+	s := &Server{cfg: cfg, local: backend.Local, ws: backend.Workspaces, box: box, client: client, loc: loc, now: time.Now}
+	if cfg.PortalMode() {
+		if backend.Workspaces == nil {
+			return nil, errors.New("portal mode needs a workspace manager")
+		}
+		s.sessions, err = portal.NewSessions(cfg.EncryptionKey, cfg.SessionTTL)
+		if err != nil {
+			return nil, err
+		}
+		s.replay = portal.NewReplayGuard()
+	} else if backend.Local == nil {
+		return nil, errors.New("local mode needs a store")
+	}
 	s.limiter = crmapi.NewLimiter(cfg.RateLimit, time.Minute)
 	if err := s.parseTemplates(); err != nil {
 		return nil, err
@@ -81,6 +103,11 @@ func (s *Server) parseTemplates() error {
 		return err
 	}
 	s.pages["setup"] = setup
+	gate, err := template.New("gate").Funcs(s.funcs()).ParseFS(templateFiles, "templates/gate.html")
+	if err != nil {
+		return err
+	}
+	s.pages["gate"] = gate
 	return nil
 }
 
@@ -91,7 +118,11 @@ func (s *Server) Handler() http.Handler {
 	})
 	public.Handle("GET /static/", s.staticHandler())
 	public.HandleFunc("POST /webhooks/resgata", s.webhook)
-	crmapi.New(s.store, s.limiter).Register(public)
+	crmapi.New(s, s.limiter).Register(public)
+	if s.cfg.PortalMode() {
+		public.HandleFunc("GET /portal-login", s.portalLogin)
+		public.Handle("POST /sair", sameOrigin(http.HandlerFunc(s.portalLogout)))
+	}
 
 	admin := http.NewServeMux()
 	s.registerAdmin(admin)
@@ -134,6 +165,10 @@ func (s *Server) registerAdmin(mux *http.ServeMux) {
 	mux.HandleFunc("GET /chaves", s.keys)
 	mux.HandleFunc("POST /chaves", s.keyCreate)
 	mux.HandleFunc("POST /chaves/{id}/revogar", s.keyRevoke)
+
+	if s.cfg.PortalMode() {
+		mux.HandleFunc("POST /reiniciar", s.workspaceReset)
+	}
 
 	mux.HandleFunc("/", s.notFound)
 }
@@ -183,6 +218,9 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func (s *Server) adminAuth(next http.Handler) http.Handler {
+	if s.cfg.PortalMode() {
+		return s.portalGate(next)
+	}
 	if s.cfg.AdminPassword == "" {
 		return next
 	}
@@ -257,6 +295,7 @@ type view struct {
 	Flash   *flash
 	Config  config.Config
 	Resgata resgataState
+	Portal  *portalView
 	Data    any
 }
 
@@ -266,9 +305,9 @@ type resgataState struct {
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title, active string, data any) {
-	conn, _, _ := s.store.Connection()
+	conn, _, _ := s.st(r).Connection()
 	v := view{
-		Title: title, Active: active, Flash: s.takeFlash(w, r), Config: s.cfg, Data: data,
+		Title: title, Active: active, Flash: s.takeFlash(w, r), Config: s.cfg, Data: data, Portal: s.portalViewFor(r),
 		Resgata: resgataState{Connected: conn.State == store.StateConnected, Revoked: conn.State == store.StateRevoked},
 	}
 	var buf bytes.Buffer
@@ -309,8 +348,8 @@ type token struct {
 	OK    bool
 }
 
-func (s *Server) token() (store.Connection, string, bool) {
-	conn, found, err := s.store.Connection()
+func (s *Server) token(r *http.Request) (store.Connection, string, bool) {
+	conn, found, err := s.st(r).Connection()
 	if err != nil || !found || conn.State != store.StateConnected || conn.TokenEncrypted == "" {
 		return conn, "", false
 	}
