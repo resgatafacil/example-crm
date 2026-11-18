@@ -1,0 +1,23 @@
+services:
+  funil:
+    build: .
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - funil-data:/data
+    restart: unless-stopped
+
+  mock-resgata:
+    build: .
+    profiles: ["offline"]
+    entrypoint: ["/app/mockresgata", "--env-file", "/dev/null"]
+    env_file: .env
+    environment:
+      MOCK_ADDR: ":9090"
+      MOCK_WEBHOOK_URL: "http://funil:8080/webhooks/resgata"
+    ports:
+      - "9090:9090"
+
+volumes:
+  funil-data:
