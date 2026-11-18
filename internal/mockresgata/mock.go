@@ -3,7 +3,6 @@ package mockresgata
 import (
 	"bytes"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -24,15 +23,12 @@ type Options struct {
 }
 
 type Mock struct {
-	mu      sync.Mutex
-	opts    Options
-	codes   map[string]authCode
-	conn    *connection
-	numbers []*number
-	msgs    map[string]*message
-	nextNum int
-	Sent    []string
-	client  *http.Client
+	mu     sync.Mutex
+	opts   Options
+	codes  map[string]authCode
+	conns  map[string]*connection
+	Sent   []string
+	client *http.Client
 }
 
 type authCode struct {
@@ -46,7 +42,12 @@ type connection struct {
 	Token       string
 	ExternalRef string
 	Status      string
+	numbers     []*number
+	msgs        map[string]*message
+	nextNum     int
 }
+
+type connHandler func(w http.ResponseWriter, r *http.Request, c *connection)
 
 type number struct {
 	ID     int
@@ -68,7 +69,7 @@ func New(opts Options) *Mock {
 	if opts.Speed == 0 {
 		opts.Speed = time.Second
 	}
-	return &Mock{opts: opts, codes: map[string]authCode{}, msgs: map[string]*message{}, client: &http.Client{Timeout: 5 * time.Second}}
+	return &Mock{opts: opts, codes: map[string]authCode{}, conns: map[string]*connection{}, client: &http.Client{Timeout: 5 * time.Second}}
 }
 
 func (m *Mock) SetWebhook(target, secret string) {
@@ -119,17 +120,47 @@ func (m *Mock) bearer(r *http.Request) string {
 	return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 }
 
-func (m *Mock) auth(next http.HandlerFunc) http.Handler {
+func (m *Mock) auth(next connHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
-		ok := m.conn != nil && m.conn.Status == "active" && subtle.ConstantTimeCompare([]byte(m.bearer(r)), []byte(m.conn.Token)) == 1
+		c := m.conns[m.bearer(r)]
+		if c != nil && c.Status != "active" {
+			c = nil
+		}
 		m.mu.Unlock()
-		if !ok {
+		if c == nil {
 			apiError(w, http.StatusUnauthorized, "authentication_error", "Credencial ausente, inválida ou revogada.")
 			return
 		}
-		next(w, r)
+		next(w, r, c)
 	})
+}
+
+func (m *Mock) newConnectionLocked(ref string) *connection {
+	for token, existing := range m.conns {
+		if existing.ExternalRef == ref && existing.Status == "active" {
+			delete(m.conns, token)
+		}
+	}
+	c := &connection{ID: randomID("conn_", 8), Token: randomID("mock_conn_", 24), ExternalRef: ref, Status: "active"}
+	c.resetLocked()
+	m.conns[c.Token] = c
+	return c
+}
+
+func (c *connection) resetLocked() {
+	c.numbers = []*number{{ID: 1, Name: "Número de teste", Phone: "5511900000001", Status: "connected"}}
+	c.nextNum = 2
+	c.msgs = map[string]*message{}
+}
+
+func (c *connection) findNumber(id int) *number {
+	for _, n := range c.numbers {
+		if n.ID == id {
+			return n
+		}
+	}
+	return nil
 }
 
 func (m *Mock) authorize(w http.ResponseWriter, r *http.Request) {
@@ -177,13 +208,12 @@ func (m *Mock) token(w http.ResponseWriter, r *http.Request) {
 	if ref == "" {
 		ref = randomID("ref_", 4)
 	}
-	m.conn = &connection{ID: randomID("conn_", 8), Token: randomID("mock_conn_", 24), ExternalRef: ref, Status: "active"}
-	m.resetNumbersLocked()
-	out := map[string]any{"access_token": m.conn.Token, "token_type": "Bearer", "scope": "numbers:read messages:send messages:read contacts:read", "connection_id": m.conn.ID, "external_ref": m.conn.ExternalRef}
+	c := m.newConnectionLocked(ref)
+	out := map[string]any{"access_token": c.Token, "token_type": "Bearer", "scope": "numbers:read messages:send messages:read contacts:read", "connection_id": c.ID, "external_ref": c.ExternalRef}
 	m.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, out)
-	m.emit("connection.created", map[string]any{"external_ref": ref, "scopes": []string{"numbers:read", "messages:send"}})
+	m.emit(c, "connection.created", map[string]any{"external_ref": ref, "scopes": []string{"numbers:read", "messages:send"}})
 }
 
 func (m *Mock) createConnection(w http.ResponseWriter, r *http.Request) {
@@ -191,53 +221,45 @@ func (m *Mock) createConnection(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.conn != nil && m.conn.Status == "active" && m.conn.ExternalRef == body["external_ref"] {
-		apiError(w, http.StatusConflict, "external_ref_in_use", "Já existe uma conexão de sandbox com este external_ref.")
-		return
+	for _, existing := range m.conns {
+		if existing.Status == "active" && existing.ExternalRef == body["external_ref"] {
+			apiError(w, http.StatusConflict, "external_ref_in_use", "Já existe uma conexão de sandbox com este external_ref.")
+			return
+		}
 	}
-	m.conn = &connection{ID: randomID("conn_", 8), ExternalRef: body["external_ref"], Status: "active", Token: randomID("mock_conn_", 24)}
-	m.resetNumbersLocked()
-	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"id": m.conn.ID, "object": "connection", "environment": "sandbox", "external_ref": m.conn.ExternalRef, "status": "active"}})
+	c := m.newConnectionLocked(body["external_ref"])
+	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"id": c.ID, "object": "connection", "environment": "sandbox", "external_ref": c.ExternalRef, "status": "active"}})
 }
 
 func (m *Mock) issueToken(w http.ResponseWriter, r *http.Request) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.conn == nil || m.conn.ID != r.PathValue("id") {
-		apiError(w, http.StatusNotFound, "not_found", "Conexão não encontrada.")
-		return
+	for _, c := range m.conns {
+		if c.ID == r.PathValue("id") {
+			writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"secret": c.Token}})
+			return
+		}
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"data": map[string]any{"secret": m.conn.Token}})
+	apiError(w, http.StatusNotFound, "not_found", "Conexão não encontrada.")
 }
 
-func (m *Mock) resetNumbersLocked() {
-	m.numbers = []*number{{ID: 1, Name: "Número de teste", Phone: "5511900000001", Status: "connected"}}
-	m.nextNum = 2
-	m.msgs = map[string]*message{}
+func (m *Mock) getConnection(w http.ResponseWriter, _ *http.Request, c *connection) {
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": c.ID, "object": "connection", "environment": "sandbox", "external_ref": c.ExternalRef, "status": "active"}})
 }
 
-func (m *Mock) getConnection(w http.ResponseWriter, _ *http.Request) {
+func (m *Mock) disconnect(w http.ResponseWriter, _ *http.Request, c *connection) {
+	m.emit(c, "connection.revoked", map[string]any{"external_ref": c.ExternalRef})
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"id": m.conn.ID, "object": "connection", "environment": "sandbox", "external_ref": m.conn.ExternalRef, "status": "active"}})
-}
-
-func (m *Mock) disconnect(w http.ResponseWriter, _ *http.Request) {
-	m.mu.Lock()
-	ref := m.conn.ExternalRef
-	m.mu.Unlock()
-	m.emit("connection.revoked", map[string]any{"external_ref": ref})
-	m.mu.Lock()
-	m.conn.Status = "revoked"
+	c.Status = "revoked"
 	m.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"object": "connection", "status": "revoked"})
 }
 
-func (m *Mock) setup(w http.ResponseWriter, _ *http.Request) {
+func (m *Mock) setup(w http.ResponseWriter, _ *http.Request, c *connection) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	connected := 0
-	for _, n := range m.numbers {
+	for _, n := range c.numbers {
 		if n.Status == "connected" {
 			connected++
 		}
@@ -250,35 +272,26 @@ func (m *Mock) setup(w http.ResponseWriter, _ *http.Request) {
 	}
 	steps := []map[string]any{
 		{"id": "workspace", "title": "Conta Resgata Fácil", "status": "complete", "required": true, "action_url": nil},
-		{"id": "number", "title": "Adicionar um número", "status": status(len(m.numbers) > 0), "required": true, "action_url": "https://app.resgatafacil.com/numeros"},
+		{"id": "number", "title": "Adicionar um número", "status": status(len(c.numbers) > 0), "required": true, "action_url": "https://app.resgatafacil.com/numeros"},
 		{"id": "channel", "title": "Conectar um canal de envio", "status": status(connected > 0), "required": true, "action_url": "https://app.resgatafacil.com/numeros"},
 		{"id": "meta_official", "title": "Vincular a Meta oficial (coexistência)", "status": status(connected > 0), "required": false, "action_url": "https://app.resgatafacil.com/meta-official"},
 	}
-	ready := len(m.numbers) > 0 && connected > 0
-	writeJSON(w, http.StatusOK, map[string]any{"object": "connection_setup", "connection": m.conn.ID, "ready": ready, "steps": steps})
+	ready := len(c.numbers) > 0 && connected > 0
+	writeJSON(w, http.StatusOK, map[string]any{"object": "connection_setup", "connection": c.ID, "ready": ready, "steps": steps})
 }
 
 func (m *Mock) numberJSON(n *number) map[string]any {
 	return map[string]any{"id": n.ID, "object": "number", "name": n.Name, "phone": n.Phone, "channel": "sandbox", "connected": n.Status == "connected", "status": n.Status}
 }
 
-func (m *Mock) listNumbers(w http.ResponseWriter, _ *http.Request) {
+func (m *Mock) listNumbers(w http.ResponseWriter, _ *http.Request, c *connection) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]any, 0, len(m.numbers))
-	for _, n := range m.numbers {
+	out := make([]any, 0, len(c.numbers))
+	for _, n := range c.numbers {
 		out = append(out, m.numberJSON(n))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
-}
-
-func (m *Mock) findNumber(id int) *number {
-	for _, n := range m.numbers {
-		if n.ID == id {
-			return n
-		}
-	}
-	return nil
 }
 
 func digits(s string) string {
@@ -291,7 +304,7 @@ func digits(s string) string {
 	return b.String()
 }
 
-func (m *Mock) sendMessage(w http.ResponseWriter, r *http.Request) {
+func (m *Mock) sendMessage(w http.ResponseWriter, r *http.Request, c *connection) {
 	var body struct {
 		To       string `json:"to"`
 		Text     string `json:"text"`
@@ -305,9 +318,9 @@ func (m *Mock) sendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	m.mu.Lock()
-	num := m.findNumber(body.NumberID)
-	if body.NumberID == 0 && len(m.numbers) > 0 {
-		num = m.numbers[0]
+	num := c.findNumber(body.NumberID)
+	if body.NumberID == 0 && len(c.numbers) > 0 {
+		num = c.numbers[0]
 	}
 	if num == nil {
 		m.mu.Unlock()
@@ -320,11 +333,11 @@ func (m *Mock) sendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := &message{ID: randomID("msg_", 8), Number: num.ID, Phone: phone, Text: body.Text, Status: "queued"}
-	m.msgs[msg.ID] = msg
+	c.msgs[msg.ID] = msg
 	m.mu.Unlock()
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"data": m.messageJSON(msg)})
-	m.runScenario(msg)
+	m.runScenario(c, msg)
 }
 
 func (m *Mock) messageJSON(msg *message) map[string]any {
@@ -335,10 +348,10 @@ func (m *Mock) messageJSON(msg *message) map[string]any {
 	return map[string]any{"id": msg.ID, "object": "message", "direction": "outbound", "number_id": msg.Number, "phone": msg.Phone, "text": msg.Text, "status": msg.Status, "error_code": code, "created_at": time.Now().Unix()}
 }
 
-func (m *Mock) getMessage(w http.ResponseWriter, r *http.Request) {
+func (m *Mock) getMessage(w http.ResponseWriter, r *http.Request, c *connection) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	msg, ok := m.msgs[r.PathValue("id")]
+	msg, ok := c.msgs[r.PathValue("id")]
 	if !ok {
 		apiError(w, http.StatusNotFound, "not_found", "Mensagem não encontrada.")
 		return
@@ -346,25 +359,25 @@ func (m *Mock) getMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": m.messageJSON(msg)})
 }
 
-func (m *Mock) runScenario(msg *message) {
+func (m *Mock) runScenario(c *connection, msg *message) {
 	step := m.opts.Speed
 	switch msg.Phone {
 	case "5500000000003":
-		m.later(0, func() { m.advance(msg, "failed", "131049") })
+		m.later(0, func() { m.advance(c, msg, "failed", "131049") })
 	case "5500000000012":
 	case "5500000000010":
-		m.later(0, func() { m.advance(msg, "sent", "") })
+		m.later(0, func() { m.advance(c, msg, "sent", "") })
 	default:
-		m.later(0, func() { m.advance(msg, "sent", "") })
-		m.later(step, func() { m.advance(msg, "delivered", "") })
-		m.later(2*step, func() { m.advance(msg, "read", "") })
+		m.later(0, func() { m.advance(c, msg, "sent", "") })
+		m.later(step, func() { m.advance(c, msg, "delivered", "") })
+		m.later(2*step, func() { m.advance(c, msg, "read", "") })
 		switch msg.Phone {
 		case "5500000000030":
 			m.later(3*step, func() {
-				m.emit("contact.opted_out", map[string]any{"contact": map[string]any{"phone": msg.Phone}, "matched_phrase": "parar"})
+				m.emit(c, "contact.opted_out", map[string]any{"contact": map[string]any{"phone": msg.Phone}, "matched_phrase": "parar"})
 			})
 		case "5500000000031":
-			m.later(3*step, func() { m.receive(msg.Phone, "Recebi sua mensagem!") })
+			m.later(3*step, func() { m.receive(c, msg.Phone, "Recebi sua mensagem!") })
 		}
 	}
 }
@@ -377,7 +390,7 @@ func (m *Mock) later(d time.Duration, fn func()) {
 	time.AfterFunc(d, fn)
 }
 
-func (m *Mock) advance(msg *message, status, code string) {
+func (m *Mock) advance(c *connection, msg *message, status, code string) {
 	m.mu.Lock()
 	msg.Status, msg.Code = status, code
 	data := map[string]any{"message": map[string]any{"id": msg.ID, "channel": "sandbox", "to": msg.Phone, "status": status, "number_id": msg.Number}}
@@ -385,7 +398,7 @@ func (m *Mock) advance(msg *message, status, code string) {
 	if status == "failed" {
 		data["error"] = map[string]any{"code": mustInt(code), "message": "Mensagem não entregue."}
 	}
-	m.emit("message."+status, data)
+	m.emit(c, "message."+status, data)
 }
 
 func mustInt(s string) int {
@@ -393,11 +406,11 @@ func mustInt(s string) int {
 	return n
 }
 
-func (m *Mock) receive(phone, text string) {
-	m.emit("message.received", map[string]any{"message": map[string]any{"id": randomID("in_", 6), "channel": "sandbox", "from": phone, "from_name": "", "type": "text", "text": text}})
+func (m *Mock) receive(c *connection, phone, text string) {
+	m.emit(c, "message.received", map[string]any{"message": map[string]any{"id": randomID("in_", 6), "channel": "sandbox", "from": phone, "from_name": "", "type": "text", "text": text}})
 }
 
-func (m *Mock) fireEvent(w http.ResponseWriter, r *http.Request) {
+func (m *Mock) fireEvent(w http.ResponseWriter, r *http.Request, c *connection) {
 	var body struct {
 		Type  string `json:"type"`
 		Phone string `json:"phone"`
@@ -436,45 +449,45 @@ func (m *Mock) fireEvent(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(body.Type, "number."):
 		data = map[string]any{"number": map[string]any{"id": 1, "name": "Número de teste", "phone": "5511900000001", "status": strings.TrimPrefix(body.Type, "number.")}, "source": "sandbox_event"}
 	}
-	m.emit(body.Type, data)
+	m.emit(c, body.Type, data)
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": "evt_mock", "type": body.Type})
 }
 
-func (m *Mock) inbound(w http.ResponseWriter, r *http.Request) {
+func (m *Mock) inbound(w http.ResponseWriter, r *http.Request, c *connection) {
 	var body struct{ From, Text string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	m.receive(digits(body.From), body.Text)
+	m.receive(c, digits(body.From), body.Text)
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
-func (m *Mock) optOut(w http.ResponseWriter, r *http.Request) {
+func (m *Mock) optOut(w http.ResponseWriter, r *http.Request, c *connection) {
 	var body struct{ Phone string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	m.emit("contact.opted_out", map[string]any{"contact": map[string]any{"phone": digits(body.Phone)}, "matched_phrase": "parar"})
+	m.emit(c, "contact.opted_out", map[string]any{"contact": map[string]any{"phone": digits(body.Phone)}, "matched_phrase": "parar"})
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
 }
 
-func (m *Mock) createNumber(w http.ResponseWriter, r *http.Request) {
+func (m *Mock) createNumber(w http.ResponseWriter, r *http.Request, c *connection) {
 	var body struct{ Name, Status string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.Status == "" {
 		body.Status = "connected"
 	}
 	m.mu.Lock()
-	n := &number{ID: m.nextNum, Name: body.Name, Phone: "55119" + strconv.Itoa(10000000+m.nextNum), Status: body.Status}
-	m.nextNum++
-	m.numbers = append(m.numbers, n)
+	n := &number{ID: c.nextNum, Name: body.Name, Phone: "55119" + strconv.Itoa(10000000+c.nextNum), Status: body.Status}
+	c.nextNum++
+	c.numbers = append(c.numbers, n)
 	out := m.numberJSON(n)
 	m.mu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]any{"data": out})
 }
 
-func (m *Mock) patchNumber(w http.ResponseWriter, r *http.Request) {
+func (m *Mock) patchNumber(w http.ResponseWriter, r *http.Request, c *connection) {
 	id, _ := strconv.Atoi(r.PathValue("id"))
 	var body struct{ Status string }
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	m.mu.Lock()
-	n := m.findNumber(id)
+	n := c.findNumber(id)
 	if n == nil {
 		m.mu.Unlock()
 		apiError(w, http.StatusNotFound, "not_found", "Número do sandbox não encontrado.")
@@ -489,24 +502,21 @@ func (m *Mock) patchNumber(w http.ResponseWriter, r *http.Request) {
 		if body.Status == "connected" {
 			kind = "number.connected"
 		}
-		m.emit(kind, map[string]any{"number": map[string]any{"id": n.ID, "name": n.Name, "phone": n.Phone, "status": body.Status}, "source": "sandbox_" + body.Status})
+		m.emit(c, kind, map[string]any{"number": map[string]any{"id": n.ID, "name": n.Name, "phone": n.Phone, "status": body.Status}, "source": "sandbox_" + body.Status})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": out})
 }
 
-func (m *Mock) reset(w http.ResponseWriter, _ *http.Request) {
+func (m *Mock) reset(w http.ResponseWriter, _ *http.Request, c *connection) {
 	m.mu.Lock()
-	m.resetNumbersLocked()
+	c.resetLocked()
 	m.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (m *Mock) emit(eventType string, data any) {
+func (m *Mock) emit(c *connection, eventType string, data any) {
 	m.mu.Lock()
-	target, secret, ref, connID := m.opts.WebhookURL, m.opts.WebhookSecret, "", ""
-	if m.conn != nil {
-		ref, connID = m.conn.ExternalRef, m.conn.ID
-	}
+	target, secret, ref, connID := m.opts.WebhookURL, m.opts.WebhookSecret, c.ExternalRef, c.ID
 	m.mu.Unlock()
 	if target == "" {
 		return
