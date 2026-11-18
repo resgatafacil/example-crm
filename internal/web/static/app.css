@@ -284,13 +284,19 @@ pre.light { background: #f6f8f7; color: var(--text); border: 1px solid var(--bor
 .gate-icon.expired, .gate-icon.invalid { background: #fdf1dc; color: var(--warning); }
 .gate-icon.full { background: #e6f0fb; color: var(--info); }
 .gate-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.gate-steps li { display: flex; align-items: center; gap: 12px; }
-.gate-steps li span { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--primary); font-weight: 700; font-size: 12.5px; }
+.gate-steps li { display: flex; align-items: flex-start; gap: 12px; }
+.gate-steps li > span { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--soft); color: var(--primary); font-weight: 700; font-size: 12.5px; }
 
+@media (max-width: 900px) {
+  .sidebar { box-shadow: none; }
+  .nav-open .sidebar { box-shadow: 8px 0 32px rgba(0, 0, 0, 0.3); }
+}
 @media (max-width: 560px) {
-  .workspace-bar { padding: 12px; }
+  .workspace-bar { padding: 12px; align-items: flex-start; }
+  .gate-brand .chip { margin-left: 0; }
   .workspace-bar .actions { margin-left: 0; width: 100%; }
   .gate-body h1 { font-size: 22px; }
   .auth-card { padding: 22px; }
   .gate .btn { width: 100%; }
 }
+.gate-steps li p { padding-top: 3px; }
