@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"resgata-example-crm/internal/events"
-	"resgata-example-crm/internal/resgata"
-	"resgata-example-crm/internal/store"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/events"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
 const maxStoredPayload = 64 * 1024

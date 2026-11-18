@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"resgata-example-crm/internal/resgata"
-	"resgata-example-crm/internal/store"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
 var statusRank = map[string]int{"queued": 0, "sent": 1, "delivered": 2, "read": 3}

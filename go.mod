@@ -1,4 +1,4 @@
-module resgata-example-crm
+module git.resgatafacil.com/resgatafacil/example-crm
 
 go 1.26.0
 

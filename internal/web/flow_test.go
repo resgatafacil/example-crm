@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"resgata-example-crm/internal/config"
-	"resgata-example-crm/internal/crypto"
-	"resgata-example-crm/internal/mockresgata"
-	"resgata-example-crm/internal/resgata"
-	"resgata-example-crm/internal/store"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/config"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/crypto"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/mockresgata"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
 type env struct {

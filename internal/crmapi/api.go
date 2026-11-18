@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"resgata-example-crm/internal/store"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
 type API struct {

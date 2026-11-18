@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode"
 
-	"resgata-example-crm/internal/resgata"
-	"resgata-example-crm/internal/store"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
 func asAPIError(err error, target **resgata.APIError) bool {

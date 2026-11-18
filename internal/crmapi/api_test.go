@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"resgata-example-crm/internal/store"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
 type fixture struct {

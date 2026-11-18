@@ -9,8 +9,8 @@ import (
 	"os"
 	"time"
 
-	"resgata-example-crm/internal/config"
-	"resgata-example-crm/internal/mockresgata"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/config"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/mockresgata"
 )
 
 func main() {

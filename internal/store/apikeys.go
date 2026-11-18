@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"resgata-example-crm/internal/crypto"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/crypto"
 )
 
 const KeyPrefix = "crm_"

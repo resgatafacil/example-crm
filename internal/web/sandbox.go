@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"resgata-example-crm/internal/resgata"
-	"resgata-example-crm/internal/store"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
 type magicNumber struct {

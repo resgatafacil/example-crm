@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"resgata-example-crm/internal/resgata"
+	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
 )
 
 type Options struct {
