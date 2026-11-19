@@ -7,6 +7,8 @@ end to end: Resgata reads this CRM's leads, and this CRM sends campaigns through
 and reacts to the webhooks that come back. The Platform API has no individual sends:
 messages leave only through campaigns (an approved template plus an audience).
 
+The full API reference is in [docs/platform-api.md](docs/platform-api.md).
+
 The CRM itself is fictional ("Funil Demo"). Everything about the integration is real and
 meant to be copied.
 
