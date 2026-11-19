@@ -76,23 +76,15 @@
     </section>
 
     <section class="card accent">
-      <header><h2>Enviar WhatsApp</h2><span class="right">{{template "brand-chip"}}</span></header>
+      <header><h2>Enviar por campanha</h2><span class="right">{{template "brand-chip"}}</span></header>
       {{if $lead.OptOut}}
-      <div class="notice warn">{{icon "ban"}}<span>Este lead pediu para não receber mensagens. O CRM bloqueia o envio e a API informa <code>opt_out: true</code> ao Resgata Fácil.</span></div>
+      <div class="notice warn">{{icon "ban"}}<span>Este lead pediu para não receber mensagens. O CRM não o inclui em nenhum público e o Resgata Fácil bloqueia o contato.</span></div>
       {{else if not .Data.Connected}}
-      <div class="notice">{{icon "info"}}<span>Conecte o CRM ao Resgata Fácil para enviar mensagens por aqui.</span></div>
+      <div class="notice">{{icon "info"}}<span>Conecte o CRM ao Resgata Fácil para criar campanhas.</span></div>
       <div style="margin-top:12px"><a class="btn" href="/integracao">{{icon "plug"}}Abrir integração</a></div>
       {{else}}
-      {{with .Data.NumbersErr}}<div class="notice error" style="margin-bottom:12px">{{icon "alert"}}<span>{{.}}</span></div>{{end}}
-      <form class="stack" method="post" action="/leads/{{$lead.ID}}/mensagem">
-        <div class="field"><label for="numero">Enviar pelo número</label>
-          <select id="numero" name="numero">
-            {{range .Data.Numbers}}<option value="{{.ID}}"{{if not .Connected}} disabled{{end}}>{{if .Name}}{{.Name}}{{else}}Número {{.ID}}{{end}} · {{numLabel .Status}}</option>{{else}}<option value="">Número padrão</option>{{end}}
-          </select></div>
-        <div class="field"><label for="texto-msg">Mensagem</label><textarea id="texto-msg" name="texto" maxlength="1000" placeholder="Oi, {{$lead.Nome}}! Posso ajudar a agendar sua avaliação?" required></textarea></div>
-        <div class="form-actions"><button class="btn" type="submit">{{icon "send"}}Enviar mensagem</button></div>
-        <p class="small muted">Os status (enviada, entregue, lida ou falhou) chegam por webhook e aparecem na linha do tempo.</p>
-      </form>
+      <p class="muted" style="margin-bottom:12px">A API não envia mensagens individuais: o lead recebe por uma campanha com um modelo aprovado. Os status chegam por webhook e aparecem na linha do tempo.</p>
+      <a class="btn" href="/campanhas/nova?lead={{$lead.ID}}">{{icon "send"}}Enviar campanha para este lead</a>
       {{end}}
     </section>
 

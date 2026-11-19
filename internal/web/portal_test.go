@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -190,13 +191,31 @@ func (d *developer) lead(phone string) store.Lead {
 	return lead
 }
 
-func (d *developer) sendTo(phone, text string) store.Lead {
+var portalTemplateID = regexp.MustCompile(`value="(tpl_[a-z0-9]+)"`)
+
+func (d *developer) approvedTemplateID() string {
+	d.p.t.Helper()
+	res := d.do(http.MethodPost, "/modelos", url.Values{"nome": {"boas_vindas"}, "categoria": {"MARKETING"}, "corpo": {"Oi {{1}}, tudo bem?"}, "exemplos": {"Maria"}}, nil)
+	res.Body.Close()
+	var id string
+	eventually(d.p.t, "an approved template", func() bool {
+		match := portalTemplateID.FindStringSubmatch(readBody(d.get("/campanhas/nova")))
+		if match == nil {
+			return false
+		}
+		id = match[1]
+		return true
+	})
+	return id
+}
+
+func (d *developer) sendTo(phone string) store.Lead {
 	d.p.t.Helper()
 	lead := d.lead(phone)
-	res := d.do(http.MethodPost, "/leads/"+lead.ID+"/mensagem", url.Values{"texto": {text}, "numero": {"1"}}, nil)
+	res := d.do(http.MethodPost, "/campanhas", url.Values{"modelo": {d.approvedTemplateID()}, "lead": {lead.ID}, "nome": {"Teste"}, "var_1": {"nome"}}, nil)
 	res.Body.Close()
 	if res.StatusCode != http.StatusSeeOther {
-		d.p.t.Fatalf("send status %d", res.StatusCode)
+		d.p.t.Fatalf("campaign status %d", res.StatusCode)
 	}
 	return lead
 }
@@ -525,7 +544,7 @@ func TestTwoDevelopersRunTheFullFlowSideBySide(t *testing.T) {
 	a.connect()
 	b.connect()
 
-	leadA := a.sendTo("+5500000000031", "Oi da Ana")
+	leadA := a.sendTo("+5500000000031")
 	eventually(t, "Ana's reply and read status", func() bool {
 		entries := a.timeline(leadA.ID)
 		return hasEntry(entries, store.KindMessageIn, "Recebi sua mensagem!") && statusOf(entries) == "read"
@@ -535,7 +554,7 @@ func TestTwoDevelopersRunTheFullFlowSideBySide(t *testing.T) {
 		t.Fatal("Beto's workspace received messages from Ana's conversation")
 	}
 
-	b.sendTo("+5500000000003", "Oi do Beto")
+	b.sendTo("+5500000000003")
 	eventually(t, "Beto's failure", func() bool { return statusOf(b.timeline(b.lead("+5500000000003").ID)) == "failed" })
 	if messageCount(a.timeline(a.lead("+5500000000003").ID)) != 0 {
 		t.Fatal("Ana's workspace received Beto's failure")

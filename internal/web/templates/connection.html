@@ -2,7 +2,7 @@
 <div class="page-head">
   <div>
     <h1>Integração com o Resgata Fácil</h1>
-    <p>Autorize este CRM com OAuth (PKCE), acompanhe os passos que faltam para o cliente e veja os números do Workspace dele.</p>
+    <p>Autorize este CRM com OAuth (PKCE), vincule a Meta do cliente e acompanhe tudo que falta para disparar campanhas.</p>
   </div>
   <div class="actions">
     {{if eq .Data.State "connected"}}<a class="btn secondary" href="/integracao">{{icon "refresh"}}Atualizar</a>{{end}}
@@ -46,16 +46,26 @@
   </div>
 
   <section class="card">
-    <header><h2>O que falta para o cliente</h2></header>
+    <header><h2>Pronto para disparar?</h2></header>
+    {{if eq .Data.MetaResult "failed"}}<div class="notice error" style="margin-bottom:12px">{{icon "alert"}}<span>A vinculação com a Meta não foi concluída. Tente de novo.</span></div>{{end}}
+    {{if eq .Data.MetaResult "linked"}}<div class="notice" style="margin-bottom:12px;background:#f3fff8;border-color:#b9efd0;color:#0f3a28">{{icon "check"}}<span>Meta vinculada. Confira os passos abaixo.</span></div>{{end}}
     {{if .Data.Error}}<div class="notice error" style="margin-bottom:12px">{{icon "alert"}}<span>{{.Data.Error}}</span></div>{{end}}
     {{if .Data.HasSetup}}
-    {{if .Data.Setup.Ready}}<div class="notice" style="margin-bottom:12px;background:#f3fff8;border-color:#b9efd0;color:#0f3a28">{{icon "check"}}<span>Tudo pronto: o cliente já pode usar a integração.</span></div>{{end}}
+    {{if .Data.Setup.Ready}}<div class="notice" style="margin-bottom:12px;background:#f3fff8;border-color:#b9efd0;color:#0f3a28">{{icon "check"}}<span>Tudo pronto: o cliente já pode disparar campanhas por este CRM.</span></div>
+    {{else}}<div class="notice warn" style="margin-bottom:12px">{{icon "alert"}}<span>Ainda faltam passos obrigatórios. Campanhas só saem quando a Meta está vinculada e há um modelo aprovado.</span></div>{{end}}
     <ol class="steps">
       {{range $i, $step := .Data.Setup.Steps}}
-      <li class="step {{if eq $step.Status "complete"}}done{{else}}todo{{end}}">
-        <span class="mark">{{if eq $step.Status "complete"}}{{icon "check"}}{{else}}{{add $i 1}}{{end}}</span>
-        <div><b>{{$step.Title}}</b><span>{{if $step.Required}}Obrigatório{{else}}Opcional{{end}}</span></div>
-        {{with safeURL $step.ActionURL}}{{if ne $step.Status "complete"}}<a class="btn secondary small" href="{{.}}" target="_blank" rel="noopener noreferrer">Abrir no Resgata {{icon "external"}}</a>{{end}}{{end}}
+      <li class="step {{if $step.Complete}}done{{else}}todo{{end}}">
+        <span class="mark">{{if $step.Complete}}{{icon "check"}}{{else if eq $step.Status "blocked"}}{{icon "alert"}}{{else}}{{add $i 1}}{{end}}</span>
+        <div><b>{{$step.Title}}</b><span>{{if $step.Required}}Obrigatório{{else}}Opcional{{end}}{{with $step.Detail}} · {{.}}{{end}}</span></div>
+        <span class="step-actions">
+          <span class="chip {{setupClass $step.Status}}">{{setupLabel $step.Status}}</span>
+          {{if and (eq $step.ID "meta_linked") (not $step.Complete)}}
+          <a class="btn small" href="/resgata/meta">{{icon "plug"}}Vincular com a Meta</a>
+          {{if $.Data.Sandbox}}<a class="btn secondary small" href="/resgata/meta?simular=falha">Simular falha</a>{{end}}
+          {{else if eq $step.ID "template_available"}}{{if not $step.Complete}}<a class="btn secondary small" href="/modelos">Criar modelo</a>{{end}}
+          {{else}}{{with safeURL $step.ActionURL}}{{if not $step.Complete}}<a class="btn secondary small" href="{{.}}" target="_blank" rel="noopener noreferrer">Abrir no Resgata {{icon "external"}}</a>{{end}}{{end}}{{end}}
+        </span>
       </li>
       {{end}}
     </ol>
@@ -72,9 +82,10 @@
     <header><h2>Conectar ao Resgata Fácil</h2></header>
     <p class="muted" style="margin-bottom:14px">Você vai para o Resgata Fácil, entra na sua conta e aprova o acesso. Depois volta para cá já conectado. Nenhuma senha passa por este CRM.</p>
     <ul class="muted" style="margin:0 0 16px;padding-left:18px;display:grid;gap:4px">
-      <li>Ler seus números do WhatsApp</li>
-      <li>Enviar e ler mensagens</li>
-      <li>Ler contatos</li>
+      <li>Ver seus números do WhatsApp</li>
+      <li>Ver e criar modelos de mensagem</li>
+      <li>Enviar públicos e criar campanhas com os seus leads</li>
+      <li>Vincular o WhatsApp Business pela Meta, além do Resgata Fácil</li>
     </ul>
     <div class="row">
       <a class="btn" href="/resgata/conectar">{{icon "plug"}}{{if eq .Data.State "revoked"}}Conectar de novo{{else}}Conectar ao Resgata Fácil{{end}}</a>

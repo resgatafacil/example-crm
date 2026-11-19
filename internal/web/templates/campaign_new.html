@@ -1,0 +1,101 @@
+{{define "content"}}
+{{$d := .Data}}
+<div class="page-head">
+  <div>
+    <div class="crumbs"><a href="/campanhas">Campanhas</a> / Nova</div>
+    <h1>Enviar campanha</h1>
+    <p>Etapa de automação do funil: escolha o modelo aprovado, os leads do CRM e o que vai em cada variável. O CRM cria o público e a campanha pela API do Resgata Fácil.</p>
+  </div>
+</div>
+
+{{if not $d.Connected}}
+<section class="card accent">
+  <header><h2>Conecte o CRM primeiro</h2></header>
+  <p class="muted" style="margin-bottom:14px">Campanhas são criadas na conta do cliente. Conecte ao Resgata Fácil e conclua o passo da Meta.</p>
+  <a class="btn" href="/integracao">{{icon "plug"}}Abrir integração</a>
+</section>
+{{else}}
+{{if $d.Error}}<div class="notice error" style="margin-bottom:16px">{{icon "alert"}}<span>{{$d.Error}}</span></div>{{if or (hasPrefix $d.Error "Vincule") (hasPrefix $d.Error "A conta do cliente")}}<div style="margin-bottom:16px"><a class="btn secondary" href="/integracao">Abrir integração</a></div>{{end}}{{end}}
+
+<ol class="flow" aria-label="Etapas da automação">
+  <li class="on"><span>1</span>Modelo e leads</li>
+  <li{{if $d.Template}} class="on"{{end}}><span>2</span>Variáveis</li>
+  <li{{if $d.Template}} class="on"{{end}}><span>3</span>Revisar e enviar</li>
+</ol>
+
+<div class="grid cols-main">
+  <div class="stack">
+    <section class="card accent">
+      <header><h2>1. Modelo e leads</h2><span class="right">{{template "brand-chip"}}</span></header>
+      <form class="stack" method="get" action="/campanhas/nova">
+        <div class="field"><label for="c-modelo">Modelo aprovado</label>
+          <select id="c-modelo" name="modelo" required>
+            <option value="">Escolha um modelo…</option>
+            {{range $d.Templates}}<option value="{{.ID}}"{{if eq .ID $d.Params.TemplateID}} selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+          {{if not $d.Templates}}<span class="hint">Nenhum modelo aprovado ainda. <a href="/modelos">Crie um modelo</a> e espere a Meta aprovar.</span>{{end}}</div>
+        {{if $d.Params.LeadID}}
+        <input type="hidden" name="lead" value="{{$d.Params.LeadID}}">
+        <div class="notice">{{icon "info"}}<span>Campanha de um lead só. <a href="/campanhas/nova?modelo={{$d.Params.TemplateID}}">Escolher uma etapa do funil</a>.</span></div>
+        {{else}}
+        <div class="field"><label for="c-etapa">Leads da etapa do funil</label>
+          <select id="c-etapa" name="etapa">
+            <option value="">Todos os leads</option>
+            {{range $d.Flows}}<optgroup label="{{.Nome}}">{{range .Steps}}<option value="{{.ID}}"{{if eq .ID $d.Params.StepID}} selected{{end}}>{{.Nome}}</option>{{end}}</optgroup>{{end}}
+          </select></div>
+        {{end}}
+        <div class="field"><label for="c-nome">Nome da campanha</label><input type="text" id="c-nome" name="nome" value="{{$d.Params.Name}}" placeholder="Reativação de novembro" maxlength="100"></div>
+        <div class="form-actions"><button class="btn secondary" type="submit">Continuar</button></div>
+      </form>
+    </section>
+
+    {{if $d.Template}}
+    <section class="card">
+      <header><h2>2. Variáveis do modelo</h2></header>
+      <blockquote class="template-preview">{{$d.Template.Body}}</blockquote>
+      <form class="stack" method="post" action="/campanhas">
+        <input type="hidden" name="modelo" value="{{$d.Params.TemplateID}}">
+        <input type="hidden" name="etapa" value="{{$d.Params.StepID}}">
+        <input type="hidden" name="lead" value="{{$d.Params.LeadID}}">
+        <input type="hidden" name="nome" value="{{$d.Params.Name}}">
+        {{if $d.Mappings}}
+        {{range $d.Mappings}}
+        {{$m := .}}
+        <div class="mapping">
+          <label for="var-{{.N}}"><code>{{"{{"}}{{.N}}{{"}}"}}</code></label>
+          <select id="var-{{.N}}" name="var_{{.N}}">
+            {{range $d.Sources}}<option value="{{.Key}}"{{if eq .Key $m.Source}} selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+          <input type="text" name="txt_{{.N}}" value="{{.Text}}" placeholder="Texto fixo (quando a origem for texto fixo)" maxlength="250" aria-label="Texto fixo da variável {{.N}}">
+        </div>
+        {{end}}
+        <p class="small muted">Nome do lead vira <code>@nome</code>; os campos do lead viajam no público como <code>variables</code> e entram na campanha como <code>@variavel_N</code>.</p>
+        {{else}}
+        <p class="muted">Este modelo não tem variáveis.</p>
+        {{end}}
+        <div class="notice">{{icon "info"}}<span>Vai para <b>{{len $d.Recipients}}</b> lead(s){{if $d.Excluded}}; <b>{{$d.Excluded}}</b> com opt-out ficam de fora{{end}}{{if $d.Truncated}}; só os primeiros 500 entram{{end}}.</span></div>
+        <div class="form-actions"><button class="btn" type="submit"{{if not $d.Recipients}} disabled{{end}}>{{icon "send"}}Criar campanha</button></div>
+        <p class="small muted">Em duas chamadas: <code>POST /audiences</code> com os leads e <code>POST /campaigns</code> com o modelo e o público. A API não tem envio individual.</p>
+      </form>
+    </section>
+    {{end}}
+  </div>
+
+  <section class="card">
+    <header><h2>Leads que recebem</h2><span class="right muted">{{len $d.Recipients}}</span></header>
+    {{if $d.Recipients}}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Lead</th><th>Celular</th></tr></thead>
+        <tbody>{{range $i, $l := $d.Recipients}}{{if lt $i 12}}<tr><td>{{$l.Nome}}<div class="muted small">{{$l.StepName}}</div></td><td class="mono">{{phone $l.Celular}}</td></tr>{{end}}{{end}}</tbody>
+      </table>
+    </div>
+    {{if gt (len $d.Recipients) 12}}<p class="small muted" style="margin-top:10px">e mais {{sub (len $d.Recipients) 12}}…</p>{{end}}
+    {{else}}
+    <div class="empty"><span class="art">{{icon "users"}}</span><h2>Nenhum lead nesta seleção</h2><p>Escolha outra etapa do funil. Leads com opt-out nunca entram.</p></div>
+    {{end}}
+    {{if $d.Excluded}}<p class="small muted" style="margin-top:12px">{{icon "ban"}} {{$d.Excluded}} lead(s) pediram para não receber mensagens e foram excluídos.</p>{{end}}
+  </section>
+</div>
+{{end}}
+{{end}}

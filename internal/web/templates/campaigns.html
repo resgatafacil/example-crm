@@ -1,0 +1,34 @@
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Campanhas</h1>
+    <p>Campanhas são a única forma de enviar pela API: um modelo aprovado e um público com os leads do CRM. O progresso chega por webhook.</p>
+  </div>
+  <div class="actions"><a class="btn" href="/campanhas/nova">{{icon "send"}}Nova campanha</a></div>
+</div>
+
+{{if .Data.Campaigns}}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Campanha</th><th>Status</th><th>Progresso</th><th>Criada</th></tr></thead>
+    <tbody>
+      {{range .Data.Campaigns}}
+      <tr>
+        <td><a href="/campanhas/{{.ID}}"><b>{{.Name}}</b></a><div class="muted small mono">{{.TemplateName}}</div></td>
+        <td><span class="chip {{campaignClass .Status}}">{{campaignLabel .Status}}</span></td>
+        <td style="min-width:180px"><div class="progress"><i style="width:{{.Progress.Percent}}%"></i></div><span class="muted small">{{.Progress.Sent}} de {{.Progress.Total}} enviadas{{if .Progress.Failed}} · {{.Progress.Failed}} falharam{{end}}</span></td>
+        <td class="muted">{{ago .CreatedAt}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<div class="card empty">
+  <span class="art">{{icon "send"}}</span>
+  <h2>Nenhuma campanha ainda</h2>
+  <p>{{if .Data.Connected}}Escolha um modelo aprovado e os leads de uma etapa do funil para criar a primeira.{{else}}Conecte o CRM ao Resgata Fácil para criar campanhas.{{end}}</p>
+  <a class="btn" href="{{if .Data.Connected}}/campanhas/nova{{else}}/integracao{{end}}">{{if .Data.Connected}}Criar campanha{{else}}Abrir integração{{end}}</a>
+</div>
+{{end}}
+{{end}}

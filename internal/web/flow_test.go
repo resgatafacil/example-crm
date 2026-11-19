@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -115,8 +116,13 @@ func readBody(res *http.Response) string {
 
 func (e *env) connect() {
 	e.t.Helper()
+	e.connectWith("")
+}
+
+func (e *env) connectWith(extraQuery string) {
+	e.t.Helper()
 	res := e.do(http.MethodGet, "/resgata/conectar", nil, nil)
-	authorize := res.Header.Get("Location")
+	authorize := res.Header.Get("Location") + extraQuery
 	res.Body.Close()
 	if !strings.Contains(authorize, "/oauth/sandbox/authorize") || !strings.Contains(authorize, "code_challenge_method=S256") {
 		e.t.Fatalf("unexpected authorize redirect %q", authorize)
@@ -156,15 +162,57 @@ func (e *env) lead(phone string) store.Lead {
 	return lead
 }
 
-func (e *env) sendTo(phone, text string) store.Lead {
+var templateIDPattern = regexp.MustCompile(`value="(tpl_[a-z0-9]+)"`)
+
+func (e *env) createTemplate(name, body, examples string) *http.Response {
 	e.t.Helper()
-	lead := e.lead(phone)
-	res := e.do(http.MethodPost, "/leads/"+lead.ID+"/mensagem", url.Values{"texto": {text}, "numero": {"1"}}, nil)
+	return e.do(http.MethodPost, "/modelos", url.Values{"nome": {name}, "categoria": {"MARKETING"}, "corpo": {body}, "exemplos": {examples}}, nil)
+}
+
+func (e *env) approvedTemplateID() string {
+	e.t.Helper()
+	res := e.createTemplate("boas_vindas", "Oi {{1}}, tudo bem?", "Maria")
 	res.Body.Close()
 	if res.StatusCode != http.StatusSeeOther {
-		e.t.Fatalf("send status %d", res.StatusCode)
+		e.t.Fatalf("template status %d", res.StatusCode)
+	}
+	var id string
+	eventually(e.t, "an approved template", func() bool {
+		match := templateIDPattern.FindStringSubmatch(readBody(e.do(http.MethodGet, "/campanhas/nova", nil, nil)))
+		if match == nil {
+			return false
+		}
+		id = match[1]
+		return true
+	})
+	return id
+}
+
+func (e *env) campaignTo(phone string) (store.Lead, *http.Response) {
+	e.t.Helper()
+	lead := e.lead(phone)
+	res := e.do(http.MethodPost, "/campanhas", url.Values{"modelo": {e.approvedTemplateID()}, "lead": {lead.ID}, "nome": {"Teste"}, "var_1": {"nome"}}, nil)
+	return lead, res
+}
+
+func (e *env) sendTo(phone string) store.Lead {
+	e.t.Helper()
+	lead, res := e.campaignTo(phone)
+	res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther || !strings.HasPrefix(res.Header.Get("Location"), "/campanhas/cmp_") {
+		e.t.Fatalf("campaign status %d to %q", res.StatusCode, res.Header.Get("Location"))
 	}
 	return lead
+}
+
+func (e *env) campaignWhere(check func(store.Campaign) bool) (store.Campaign, bool) {
+	list, _ := e.store.Campaigns(10)
+	for _, c := range list {
+		if check(c) {
+			return c, true
+		}
+	}
+	return store.Campaign{}, false
 }
 
 func (e *env) outboundStatus(leadID string) (string, string) {
@@ -186,7 +234,7 @@ func TestOAuthSendAndWebhookRoundTrip(t *testing.T) {
 		t.Fatal("the connection token must be stored encrypted")
 	}
 
-	lead := e.sendTo("+5519991230001", "Olá, Mariana!")
+	lead := e.sendTo("+5519991230001")
 	eventually(t, "the message to be read", func() bool {
 		status, _ := e.outboundStatus(lead.ID)
 		return status == "read"
@@ -200,7 +248,7 @@ func TestOAuthSendAndWebhookRoundTrip(t *testing.T) {
 func TestFailedMessageShowsCode(t *testing.T) {
 	e := newEnv(t, "")
 	e.connect()
-	lead := e.sendTo("+5500000000003", "teste")
+	lead := e.sendTo("+5500000000003")
 	eventually(t, "the failure", func() bool {
 		status, code := e.outboundStatus(lead.ID)
 		return status == "failed" && code == "131049"
@@ -211,16 +259,19 @@ func TestFailedMessageShowsCode(t *testing.T) {
 	}
 }
 
-func TestOptOutBlocksFurtherSends(t *testing.T) {
+func TestOptOutKeepsTheLeadOutOfNextCampaigns(t *testing.T) {
 	e := newEnv(t, "")
 	e.connect()
-	lead := e.sendTo("+5500000000030", "oi")
+	lead := e.sendTo("+5500000000030")
 	eventually(t, "opt-out", func() bool { return e.lead("+5500000000030").OptOut })
 
 	before, _ := e.store.Timeline(lead.ID)
-	res := e.do(http.MethodPost, "/leads/"+lead.ID+"/mensagem", url.Values{"texto": {"de novo"}}, nil)
-	res.Body.Close()
+	_, res := e.campaignTo("+5500000000030")
+	body := readBody(res)
 	after, _ := e.store.Timeline(lead.ID)
+	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(body, "Nenhum lead elegível") {
+		t.Fatalf("a lead that opted out must not be eligible, got %d", res.StatusCode)
+	}
 	if len(after) != len(before) {
 		t.Fatal("a message was recorded for a lead that opted out")
 	}
@@ -229,7 +280,7 @@ func TestOptOutBlocksFurtherSends(t *testing.T) {
 func TestAutoReplyArrivesOnTheTimeline(t *testing.T) {
 	e := newEnv(t, "")
 	e.connect()
-	lead := e.sendTo("+5500000000031", "oi")
+	lead := e.sendTo("+5500000000031")
 	eventually(t, "the reply", func() bool {
 		entries, _ := e.store.Timeline(lead.ID)
 		for _, entry := range entries {
@@ -348,7 +399,7 @@ func TestPagesRender(t *testing.T) {
 	e := newEnv(t, "")
 	e.connect()
 	lead := e.lead("+5519991230001")
-	for _, path := range []string{"/", "/funil", "/funil?fluxo=fl_reativacao", "/leads", "/leads?q=mariana", "/leads/novo", "/leads/" + lead.ID, "/leads/" + lead.ID + "/editar", "/leads/" + lead.ID + "/linha-do-tempo", "/integracao", "/eventos", "/eventos/lista", "/sandbox", "/chaves"} {
+	for _, path := range []string{"/", "/funil", "/funil?fluxo=fl_reativacao", "/leads", "/leads?q=mariana", "/leads/novo", "/leads/" + lead.ID, "/leads/" + lead.ID + "/editar", "/leads/" + lead.ID + "/linha-do-tempo", "/integracao", "/eventos", "/eventos/lista", "/sandbox", "/chaves", "/modelos", "/modelos/lista", "/campanhas", "/campanhas/nova", "/campanhas/nova?lead=" + lead.ID} {
 		res := e.do(http.MethodGet, path, nil, nil)
 		body := readBody(res)
 		if res.StatusCode != http.StatusOK || len(body) < 50 {

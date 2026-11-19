@@ -1,0 +1,81 @@
+{{define "templatesList"}}
+{{if .Templates}}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Modelo</th><th>Categoria</th><th>Status</th></tr></thead>
+    <tbody>
+      {{range .Templates}}
+      <tr>
+        <td>
+          <b class="mono">{{.Name}}</b>
+          <div class="muted small">{{.Body}}</div>
+          {{with .Rejection}}<div class="small" style="color:var(--error);margin-top:4px">Motivo da Meta: {{.}}</div>{{end}}
+        </td>
+        <td><span class="chip muted">{{categoryLabel .Category}}</span></td>
+        <td><span class="chip {{templateClass .Status}}">{{templateLabel .Status}}</span></td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{if .Pending}}<p class="live small" style="margin-top:14px" data-pending>A Meta está analisando. Atualizando ao vivo…</p>{{end}}
+{{else if .Connected}}
+<div class="card empty"><span class="art">{{icon "note"}}</span><h2>Nenhum modelo ainda</h2><p>Crie o primeiro ao lado. Depois de aprovado pela Meta, ele pode ser usado em campanhas.</p></div>
+{{end}}
+{{end}}
+
+{{define "content"}}
+<div class="page-head">
+  <div>
+    <h1>Modelos de mensagem</h1>
+    <p>Campanhas só enviam modelos aprovados pela Meta. Crie e acompanhe os modelos pela API: <code>GET /templates</code> e <code>POST /templates</code>.</p>
+  </div>
+  <div class="actions"><a class="btn" href="/campanhas/nova">{{icon "send"}}Nova campanha</a></div>
+</div>
+
+{{if not .Data.Connected}}
+<section class="card accent">
+  <header><h2>Conecte o CRM primeiro</h2></header>
+  <p class="muted" style="margin-bottom:14px">Os modelos vivem na conta do WhatsApp Business do cliente. Conecte ao Resgata Fácil para listar e criar modelos.</p>
+  <a class="btn" href="/integracao">{{icon "plug"}}Abrir integração</a>
+</section>
+{{else}}
+<div class="grid cols-main">
+  <section class="card" aria-labelledby="tpl-title">
+    <header><h2 id="tpl-title">Seus modelos</h2><span class="right muted">{{len .Data.Templates}}</span></header>
+    {{if .Data.Error}}<div class="notice error" style="margin-bottom:12px">{{icon "alert"}}<span>{{.Data.Error}}</span></div>{{if hasPrefix .Data.Error "Vincule"}}<div style="margin-bottom:12px"><a class="btn secondary" href="/integracao">Abrir integração</a></div>{{end}}{{end}}
+    <div data-refresh-url="/modelos/lista" data-refresh-seconds="3" data-refresh-while="[data-pending]">
+      {{template "templatesList" .Data}}
+    </div>
+  </section>
+
+  <section class="card accent">
+    <header><h2>Novo modelo</h2><span class="right">{{template "brand-chip"}}</span></header>
+    <form class="stack" method="post" action="/modelos" novalidate>
+      <div class="field{{if .Data.Errors.name}} invalid{{end}}"><label for="tpl-nome">Nome</label>
+        <input type="text" id="tpl-nome" name="nome" value="{{.Data.Form.Name}}" placeholder="promocao_da_semana" required>
+        {{with .Data.Errors.name}}<span class="error-text">{{.}}</span>{{end}}</div>
+      <div class="field{{if .Data.Errors.category}} invalid{{end}}"><label for="tpl-cat">Categoria</label>
+        <select id="tpl-cat" name="categoria">
+          <option value="MARKETING"{{if eq .Data.Form.Category "MARKETING"}} selected{{end}}>Marketing</option>
+          <option value="UTILITY"{{if eq .Data.Form.Category "UTILITY"}} selected{{end}}>Utilidade</option>
+        </select>
+        {{with .Data.Errors.category}}<span class="error-text">{{.}}</span>{{end}}</div>
+      <div class="field{{if .Data.Errors.body}} invalid{{end}}"><label for="tpl-corpo">Texto da mensagem</label>
+        <textarea id="tpl-corpo" name="corpo" maxlength="1024" required>{{.Data.Form.Body}}</textarea>
+        <span class="hint">Use <code>{{"{{1}}"}}</code>, <code>{{"{{2}}"}}</code>… para variáveis.</span>
+        {{with .Data.Errors.body}}<span class="error-text">{{.}}</span>{{end}}</div>
+      <div class="field{{if .Data.Errors.examples}} invalid{{end}}"><label for="tpl-ex">Exemplos das variáveis</label>
+        <textarea id="tpl-ex" name="exemplos" placeholder="Maria">{{.Data.Form.Examples}}</textarea>
+        <span class="hint">Um exemplo por linha, na ordem das variáveis. A Meta usa para aprovar.</span>
+        {{with .Data.Errors.examples}}<span class="error-text">{{.}}</span>{{end}}</div>
+      <div class="field{{if .Data.Errors.footer}} invalid{{end}}"><label for="tpl-rodape">Rodapé (opcional)</label>
+        <input type="text" id="tpl-rodape" name="rodape" value="{{.Data.Form.Footer}}" maxlength="60" placeholder="Responda PARAR para sair">
+        {{with .Data.Errors.footer}}<span class="error-text">{{.}}</span>{{end}}</div>
+      <div class="form-actions"><button class="btn" type="submit">{{icon "send"}}Enviar para aprovação</button></div>
+      <p class="small muted">No sandbox, o modelo é aprovado em segundos. Um nome com <code>_reject</code> é recusado e com <code>_pending</code> fica na análise.</p>
+    </form>
+  </section>
+</div>
+{{end}}
+{{end}}

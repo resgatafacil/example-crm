@@ -176,3 +176,95 @@ func TestPingAndUnknownTypesAreHarmless(t *testing.T) {
 		}
 	}
 }
+
+func campaignPayload(id, state string, sent, failed int) map[string]any {
+	return map[string]any{"campaign": map[string]any{
+		"id": id, "name": "Teste", "status": state, "pause_reason": nil,
+		"progress": map[string]any{"total": 2, "sent": sent, "delivered": sent, "read": 0, "failed": failed, "skipped": 0, "pending": 0, "percent": 100},
+	}}
+}
+
+func TestCampaignEventsUpdateOnlyKnownCampaigns(t *testing.T) {
+	s := newStore(t)
+	if err := s.SaveCampaign(store.Campaign{ID: "cmp_1", Name: "Teste", TemplateID: "tpl_1", TemplateName: "promo", Status: store.CampaignRunning, Progress: store.Progress{Total: 2}}); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, err := Apply(s, event(t, resgata.EventCampaignFinished, campaignPayload("cmp_1", "finished", 2, 0)))
+	if err != nil || !strings.Contains(outcome, "finished") {
+		t.Fatalf("outcome %q err %v", outcome, err)
+	}
+	got, _, _ := s.Campaign("cmp_1")
+	if got.Status != store.CampaignFinished || got.Progress.Sent != 2 {
+		t.Fatalf("campaign = %+v", got)
+	}
+
+	if _, err := Apply(s, event(t, resgata.EventCampaignStarted, campaignPayload("cmp_1", "running", 0, 0))); err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ = s.Campaign("cmp_1")
+	if got.Status != store.CampaignFinished {
+		t.Fatalf("a late campaign.started must not reopen a finished campaign, got %s", got.Status)
+	}
+
+	outcome, err = Apply(s, event(t, resgata.EventCampaignPaused, campaignPayload("cmp_other", "paused", 0, 0)))
+	if err != nil || !strings.Contains(outcome, "another source") {
+		t.Fatalf("a campaign made elsewhere must be ignored: %q %v", outcome, err)
+	}
+	if known, _, _ := s.Campaign("cmp_other"); known.ID != "" {
+		t.Fatal("an unknown campaign was stored")
+	}
+}
+
+func TestCampaignMessagesCreateTimelineEntriesWithTheCampaign(t *testing.T) {
+	s := newStore(t)
+	if err := s.SaveCampaign(store.Campaign{ID: "cmp_1", Name: "Black Friday", TemplateID: "tpl_1", TemplateName: "promo", Status: store.CampaignRunning, Progress: store.Progress{Total: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	lead, _, _ := s.LeadByPhone("+5519991230001")
+	message := func(state string) map[string]any {
+		return map[string]any{"message": map[string]any{"id": "wamid_1", "status": state, "to": "5519991230001", "campaign_id": "cmp_1"}}
+	}
+
+	if _, err := Apply(s, event(t, resgata.EventMessageSent, message("sent"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(s, event(t, resgata.EventMessageRead, message("read"))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(s, event(t, resgata.EventMessageDelivered, message("delivered"))); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, _ := s.Timeline(lead.ID)
+	if len(entries) != 1 || entries[0].CampaignID != "cmp_1" || entries[0].Status != "read" || !strings.Contains(entries[0].Body, "Black Friday") {
+		t.Fatalf("entries = %+v", entries)
+	}
+	campaign, _, _ := s.Campaign("cmp_1")
+	if campaign.Progress.Sent != 1 || campaign.Progress.Read != 1 {
+		t.Fatalf("progress = %+v", campaign.Progress)
+	}
+}
+
+func TestMessagesOfUnknownCampaignsAreKeptAsPlainMessages(t *testing.T) {
+	s := newStore(t)
+	lead, _, _ := s.LeadByPhone("+5519991230002")
+	data := map[string]any{"message": map[string]any{"id": "wamid_x", "status": "sent", "to": "5519991230002", "campaign_id": "cmp_ghost", "text": "oi"}}
+	if _, err := Apply(s, event(t, resgata.EventMessageSent, data)); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := s.Timeline(lead.ID)
+	if len(entries) != 1 || entries[0].CampaignID != "" {
+		t.Fatalf("entries = %+v", entries)
+	}
+}
+
+func TestTemplateEventsAreRecordedWithoutSideEffects(t *testing.T) {
+	s := newStore(t)
+	outcome, err := Apply(s, event(t, resgata.EventTemplateRejected, map[string]any{
+		"template": map[string]any{"id": "tpl_1", "name": "promo", "status": "rejected", "rejection_reason": "INVALID_FORMAT"}, "previous_status": "pending",
+	}))
+	if err != nil || !strings.Contains(outcome, "promo is rejected") {
+		t.Fatalf("outcome %q err %v", outcome, err)
+	}
+}

@@ -60,7 +60,36 @@ func (s *Store) stamp() string {
 }
 
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(schema)
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	if err := s.addColumn("timeline", "campaign_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS timeline_campaign ON timeline (campaign_id)`)
+	return err
+}
+
+func (s *Store) addColumn(table, column, definition string) error {
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	_, err = s.db.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition)
 	return err
 }
 
@@ -129,6 +158,24 @@ CREATE TABLE IF NOT EXISTS timeline (
 );
 CREATE INDEX IF NOT EXISTS timeline_lead ON timeline (lead_id, id);
 CREATE INDEX IF NOT EXISTS timeline_external ON timeline (external_id);
+CREATE TABLE IF NOT EXISTS campaigns (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	template_id TEXT NOT NULL,
+	template_name TEXT NOT NULL DEFAULT '',
+	audience_id TEXT NOT NULL DEFAULT '',
+	status TEXT NOT NULL,
+	pause_reason TEXT NOT NULL DEFAULT '',
+	lead_count INTEGER NOT NULL DEFAULT 0,
+	total INTEGER NOT NULL DEFAULT 0,
+	sent INTEGER NOT NULL DEFAULT 0,
+	delivered INTEGER NOT NULL DEFAULT 0,
+	read INTEGER NOT NULL DEFAULT 0,
+	failed INTEGER NOT NULL DEFAULT 0,
+	skipped INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS api_keys (
 	id TEXT PRIMARY KEY,
 	unit_id TEXT NOT NULL REFERENCES units(id),

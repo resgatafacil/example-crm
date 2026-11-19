@@ -27,6 +27,7 @@ type Mock struct {
 	opts   Options
 	codes  map[string]authCode
 	conns  map[string]*connection
+	links  map[string]metaLink
 	Sent   []string
 	client *http.Client
 }
@@ -35,6 +36,13 @@ type authCode struct {
 	challenge   string
 	redirectURI string
 	externalRef string
+	meta        string
+}
+
+type metaLink struct {
+	conn      *connection
+	returnURL string
+	result    string
 }
 
 type connection struct {
@@ -42,9 +50,12 @@ type connection struct {
 	Token       string
 	ExternalRef string
 	Status      string
+	Meta        string
 	numbers     []*number
-	msgs        map[string]*message
 	nextNum     int
+	templates   []*template
+	audiences   map[string]*audience
+	campaigns   []*campaign
 }
 
 type connHandler func(w http.ResponseWriter, r *http.Request, c *connection)
@@ -56,20 +67,11 @@ type number struct {
 	Status string
 }
 
-type message struct {
-	ID     string
-	Number int
-	Phone  string
-	Text   string
-	Status string
-	Code   string
-}
-
 func New(opts Options) *Mock {
 	if opts.Speed == 0 {
 		opts.Speed = time.Second
 	}
-	return &Mock{opts: opts, codes: map[string]authCode{}, conns: map[string]*connection{}, client: &http.Client{Timeout: 5 * time.Second}}
+	return &Mock{opts: opts, codes: map[string]authCode{}, conns: map[string]*connection{}, links: map[string]metaLink{}, client: &http.Client{Timeout: 5 * time.Second}}
 }
 
 func (m *Mock) SentTypes() []string {
@@ -101,14 +103,26 @@ func (m *Mock) Handler() http.Handler {
 	mux.Handle("DELETE /connection", m.auth(m.disconnect))
 	mux.Handle("GET /connection/setup", m.auth(m.setup))
 	mux.Handle("GET /numbers", m.auth(m.listNumbers))
-	mux.Handle("POST /messages", m.auth(m.sendMessage))
-	mux.Handle("GET /messages/{id}", m.auth(m.getMessage))
+	mux.Handle("POST /connection/meta-link", m.auth(m.startMetaLink))
+	mux.HandleFunc("GET /oauth/sandbox/meta-link", m.finishMetaLink)
+	mux.Handle("GET /templates", m.auth(m.listTemplates))
+	mux.Handle("POST /templates", m.auth(m.createTemplate))
+	mux.Handle("GET /templates/{id}", m.auth(m.getTemplate))
+	mux.Handle("POST /audiences", m.auth(m.createAudience))
+	mux.Handle("GET /campaigns", m.auth(m.listCampaigns))
+	mux.Handle("POST /campaigns", m.auth(m.createCampaign))
+	mux.Handle("GET /campaigns/{id}", m.auth(m.getCampaign))
+	mux.Handle("POST /campaigns/{id}/pause", m.auth(m.pauseCampaign))
+	mux.Handle("POST /campaigns/{id}/resume", m.auth(m.resumeCampaign))
 	mux.Handle("POST /sandbox/events", m.auth(m.fireEvent))
 	mux.Handle("POST /sandbox/inbound-messages", m.auth(m.inbound))
 	mux.Handle("POST /sandbox/opt-outs", m.auth(m.optOut))
 	mux.Handle("POST /sandbox/numbers", m.auth(m.createNumber))
 	mux.Handle("PATCH /sandbox/numbers/{id}", m.auth(m.patchNumber))
 	mux.Handle("POST /sandbox/reset", m.auth(m.reset))
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		apiError(w, http.StatusNotFound, "not_found", "Rota não encontrada.")
+	})
 	return mux
 }
 
@@ -148,7 +162,7 @@ func (m *Mock) newConnectionLocked(ref string) *connection {
 			delete(m.conns, token)
 		}
 	}
-	c := &connection{ID: randomID("conn_", 8), Token: randomID("mock_conn_", 24), ExternalRef: ref, Status: "active"}
+	c := &connection{ID: randomID("conn_", 8), Token: randomID("mock_conn_", 24), ExternalRef: ref, Status: "active", Meta: metaLinked}
 	c.resetLocked()
 	m.conns[c.Token] = c
 	return c
@@ -157,7 +171,9 @@ func (m *Mock) newConnectionLocked(ref string) *connection {
 func (c *connection) resetLocked() {
 	c.numbers = []*number{{ID: 1, Name: "Número de teste", Phone: "5511900000001", Status: "connected"}}
 	c.nextNum = 2
-	c.msgs = map[string]*message{}
+	c.templates = nil
+	c.audiences = map[string]*audience{}
+	c.campaigns = nil
 }
 
 func (c *connection) findNumber(id int) *number {
@@ -188,7 +204,11 @@ func (m *Mock) authorize(w http.ResponseWriter, r *http.Request) {
 	} else {
 		code := randomID("code_", 12)
 		m.mu.Lock()
-		m.codes[code] = authCode{challenge: q.Get("code_challenge"), redirectURI: redirect, externalRef: q.Get("external_ref")}
+		meta := q.Get("meta")
+		if meta == "" {
+			meta = metaLinked
+		}
+		m.codes[code] = authCode{challenge: q.Get("code_challenge"), redirectURI: redirect, externalRef: q.Get("external_ref"), meta: meta}
 		m.mu.Unlock()
 		values.Set("code", code)
 	}
@@ -215,11 +235,13 @@ func (m *Mock) token(w http.ResponseWriter, r *http.Request) {
 		ref = randomID("ref_", 4)
 	}
 	c := m.newConnectionLocked(ref)
-	out := map[string]any{"access_token": c.Token, "token_type": "Bearer", "scope": "numbers:read messages:send messages:read contacts:read", "connection_id": c.ID, "external_ref": c.ExternalRef}
+	c.Meta = code.meta
+	scopes := strings.Join(resgata.DefaultScopes, " ")
+	out := map[string]any{"access_token": c.Token, "token_type": "Bearer", "scope": scopes, "connection_id": c.ID, "external_ref": c.ExternalRef}
 	m.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, out)
-	m.emit(c, "connection.created", map[string]any{"external_ref": ref, "scopes": []string{"numbers:read", "messages:send"}})
+	m.emit(c, "connection.created", map[string]any{"external_ref": ref, "scopes": resgata.DefaultScopes})
 }
 
 func (m *Mock) createConnection(w http.ResponseWriter, r *http.Request) {
@@ -263,26 +285,8 @@ func (m *Mock) disconnect(w http.ResponseWriter, _ *http.Request, c *connection)
 
 func (m *Mock) setup(w http.ResponseWriter, _ *http.Request, c *connection) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	connected := 0
-	for _, n := range c.numbers {
-		if n.Status == "connected" {
-			connected++
-		}
-	}
-	status := func(ok bool) string {
-		if ok {
-			return "complete"
-		}
-		return "incomplete"
-	}
-	steps := []map[string]any{
-		{"id": "workspace", "title": "Conta Resgata Fácil", "status": "complete", "required": true, "action_url": nil},
-		{"id": "number", "title": "Adicionar um número", "status": status(len(c.numbers) > 0), "required": true, "action_url": "https://app.resgatafacil.com/numeros"},
-		{"id": "channel", "title": "Conectar um canal de envio", "status": status(connected > 0), "required": true, "action_url": "https://app.resgatafacil.com/numeros"},
-		{"id": "meta_official", "title": "Vincular a Meta oficial (coexistência)", "status": status(connected > 0), "required": false, "action_url": "https://app.resgatafacil.com/meta-official"},
-	}
-	ready := len(c.numbers) > 0 && connected > 0
+	steps, ready := m.setupStepsLocked(c)
+	m.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"object": "connection_setup", "connection": c.ID, "ready": ready, "steps": steps})
 }
 
@@ -310,101 +314,12 @@ func digits(s string) string {
 	return b.String()
 }
 
-func (m *Mock) sendMessage(w http.ResponseWriter, r *http.Request, c *connection) {
-	var body struct {
-		To       string `json:"to"`
-		Text     string `json:"text"`
-		NumberID int    `json:"number_id"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	phone := digits(body.To)
-	if phone == "" || strings.TrimSpace(body.Text) == "" {
-		apiError(w, http.StatusUnprocessableEntity, "invalid_request_error", "Informe to (celular com DDD) e text.")
-		return
-	}
-
-	m.mu.Lock()
-	num := c.findNumber(body.NumberID)
-	if body.NumberID == 0 && len(c.numbers) > 0 {
-		num = c.numbers[0]
-	}
-	if num == nil {
-		m.mu.Unlock()
-		apiError(w, http.StatusNotFound, "not_found", "Número do sandbox não encontrado.")
-		return
-	}
-	if num.Status != "connected" {
-		m.mu.Unlock()
-		apiError(w, http.StatusUnprocessableEntity, "number_not_connected", "O número do sandbox não está conectado.")
-		return
-	}
-	msg := &message{ID: randomID("msg_", 8), Number: num.ID, Phone: phone, Text: body.Text, Status: "queued"}
-	c.msgs[msg.ID] = msg
-	m.mu.Unlock()
-
-	writeJSON(w, http.StatusAccepted, map[string]any{"data": m.messageJSON(msg)})
-	m.runScenario(c, msg)
-}
-
-func (m *Mock) messageJSON(msg *message) map[string]any {
-	var code any
-	if msg.Code != "" {
-		code, _ = strconv.Atoi(msg.Code)
-	}
-	return map[string]any{"id": msg.ID, "object": "message", "direction": "outbound", "number_id": msg.Number, "phone": msg.Phone, "text": msg.Text, "status": msg.Status, "error_code": code, "created_at": time.Now().Unix()}
-}
-
-func (m *Mock) getMessage(w http.ResponseWriter, r *http.Request, c *connection) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	msg, ok := c.msgs[r.PathValue("id")]
-	if !ok {
-		apiError(w, http.StatusNotFound, "not_found", "Mensagem não encontrada.")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"data": m.messageJSON(msg)})
-}
-
-func (m *Mock) runScenario(c *connection, msg *message) {
-	step := m.opts.Speed
-	switch msg.Phone {
-	case "5500000000003":
-		m.later(0, func() { m.advance(c, msg, "failed", "131049") })
-	case "5500000000012":
-	case "5500000000010":
-		m.later(0, func() { m.advance(c, msg, "sent", "") })
-	default:
-		m.later(0, func() { m.advance(c, msg, "sent", "") })
-		m.later(step, func() { m.advance(c, msg, "delivered", "") })
-		m.later(2*step, func() { m.advance(c, msg, "read", "") })
-		switch msg.Phone {
-		case "5500000000030":
-			m.later(3*step, func() {
-				m.emit(c, "contact.opted_out", map[string]any{"contact": map[string]any{"phone": msg.Phone}, "matched_phrase": "parar"})
-			})
-		case "5500000000031":
-			m.later(3*step, func() { m.receive(c, msg.Phone, "Recebi sua mensagem!") })
-		}
-	}
-}
-
 func (m *Mock) later(d time.Duration, fn func()) {
 	if d == 0 {
 		go fn()
 		return
 	}
 	time.AfterFunc(d, fn)
-}
-
-func (m *Mock) advance(c *connection, msg *message, status, code string) {
-	m.mu.Lock()
-	msg.Status, msg.Code = status, code
-	data := map[string]any{"message": map[string]any{"id": msg.ID, "channel": "sandbox", "to": msg.Phone, "status": status, "number_id": msg.Number}}
-	m.mu.Unlock()
-	if status == "failed" {
-		data["error"] = map[string]any{"code": mustInt(code), "message": "Mensagem não entregue."}
-	}
-	m.emit(c, "message."+status, data)
 }
 
 func mustInt(s string) int {
@@ -452,6 +367,14 @@ func (m *Mock) fireEvent(w http.ResponseWriter, r *http.Request, c *connection) 
 		data = payload
 	case body.Type == "contact.opted_out":
 		data = map[string]any{"contact": map[string]any{"phone": phone}, "matched_phrase": "parar"}
+	case strings.HasPrefix(body.Type, "campaign."):
+		data = map[string]any{"campaign": sampleCampaign(strings.TrimPrefix(body.Type, "campaign."))}
+	case strings.HasPrefix(body.Type, "template."):
+		status := map[string]string{"approved": "approved", "rejected": "rejected"}[strings.TrimPrefix(body.Type, "template.")]
+		if status == "" {
+			status = "paused"
+		}
+		data = map[string]any{"template": map[string]any{"id": "tpl_sample", "name": "modelo_de_teste", "category": "MARKETING", "language": "pt_BR", "status": status, "rejection_reason": nil}, "previous_status": "pending"}
 	case strings.HasPrefix(body.Type, "number."):
 		data = map[string]any{"number": map[string]any{"id": 1, "name": "Número de teste", "phone": "5511900000001", "status": strings.TrimPrefix(body.Type, "number.")}, "source": "sandbox_event"}
 	}

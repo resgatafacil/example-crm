@@ -16,10 +16,19 @@ const (
 	EventMessageRead        = "message.read"
 	EventMessageFailed      = "message.failed"
 	EventContactOptedOut    = "contact.opted_out"
+	EventCampaignStarted    = "campaign.started"
+	EventCampaignPaused     = "campaign.paused"
+	EventCampaignFinished   = "campaign.finished"
+	EventCampaignFailed     = "campaign.failed"
+	EventTemplateApproved   = "template.approved"
+	EventTemplateRejected   = "template.rejected"
+	EventTemplateChanged    = "template.status_changed"
 	EventPing               = "ping"
 )
 
 var EventTypes = []string{
+	EventCampaignStarted, EventCampaignPaused, EventCampaignFinished, EventCampaignFailed,
+	EventTemplateApproved, EventTemplateRejected, EventTemplateChanged,
 	EventConnectionCreated, EventConnectionRevoked,
 	EventNumberConnected, EventNumberDisconnected,
 	EventMessageReceived, EventMessageSent, EventMessageDelivered, EventMessageRead, EventMessageFailed,
@@ -43,14 +52,15 @@ type EventConnection struct {
 
 type MessageData struct {
 	Message struct {
-		ID       string `json:"id"`
-		Channel  string `json:"channel"`
-		From     string `json:"from"`
-		FromName string `json:"from_name"`
-		To       string `json:"to"`
-		Text     string `json:"text"`
-		Status   string `json:"status"`
-		NumberID int    `json:"number_id"`
+		ID         string `json:"id"`
+		Channel    string `json:"channel"`
+		From       string `json:"from"`
+		FromName   string `json:"from_name"`
+		To         string `json:"to"`
+		Text       string `json:"text"`
+		Status     string `json:"status"`
+		NumberID   int    `json:"number_id"`
+		CampaignID string `json:"campaign_id"`
 	} `json:"message"`
 	Error struct {
 		Code    any    `json:"code"`
@@ -92,4 +102,13 @@ func FailureReason(code string) string {
 		return "A mensagem falhou."
 	}
 	return "A mensagem falhou (código " + code + ")."
+}
+
+type CampaignEventData struct {
+	Campaign Campaign `json:"campaign"`
+}
+
+type TemplateEventData struct {
+	Template       Template `json:"template"`
+	PreviousStatus string   `json:"previous_status"`
 }

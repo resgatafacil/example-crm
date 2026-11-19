@@ -29,6 +29,7 @@ type APIError struct {
 	Status  int
 	Type    string
 	Message string
+	Fields  map[string][]string
 }
 
 func (e *APIError) Error() string {
@@ -88,12 +89,13 @@ func (c *Client) do(ctx context.Context, method, path, credential string, body a
 func parseError(status int, raw []byte) error {
 	var envelope struct {
 		Error struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
+			Type    string              `json:"type"`
+			Message string              `json:"message"`
+			Fields  map[string][]string `json:"fields"`
 		} `json:"error"`
 	}
 	_ = json.Unmarshal(raw, &envelope)
-	apiErr := &APIError{Status: status, Type: envelope.Error.Type, Message: envelope.Error.Message}
+	apiErr := &APIError{Status: status, Type: envelope.Error.Type, Message: envelope.Error.Message, Fields: envelope.Error.Fields}
 	if apiErr.Type == "" {
 		apiErr.Type = "http_error"
 	}
@@ -125,8 +127,11 @@ type SetupStep struct {
 	Title     string  `json:"title"`
 	Status    string  `json:"status"`
 	Required  bool    `json:"required"`
+	Detail    *string `json:"detail"`
 	ActionURL *string `json:"action_url"`
 }
+
+func (s SetupStep) Complete() bool { return s.Status == "complete" }
 
 type Setup struct {
 	Ready bool        `json:"ready"`
@@ -140,16 +145,6 @@ type Number struct {
 	Channel   string `json:"channel"`
 	Connected bool   `json:"connected"`
 	Status    string `json:"status"`
-}
-
-type Message struct {
-	ID        string `json:"id"`
-	Direction string `json:"direction"`
-	NumberID  int    `json:"number_id"`
-	Phone     string `json:"phone"`
-	Text      string `json:"text"`
-	Status    string `json:"status"`
-	ErrorCode any    `json:"error_code"`
 }
 
 type Token struct {
@@ -190,22 +185,6 @@ func (c *Client) Disconnect(ctx context.Context, token string) error {
 func (c *Client) Numbers(ctx context.Context, token string) ([]Number, error) {
 	var out []Number
 	err := c.do(ctx, http.MethodGet, "/numbers", token, nil, &out)
-	return out, err
-}
-
-func (c *Client) SendMessage(ctx context.Context, token, to, text string, numberID int) (Message, error) {
-	body := map[string]any{"to": to, "text": text}
-	if numberID > 0 {
-		body["number_id"] = numberID
-	}
-	var out Message
-	err := c.do(ctx, http.MethodPost, "/messages", token, body, &out)
-	return out, err
-}
-
-func (c *Client) Message(ctx context.Context, token, id string) (Message, error) {
-	var out Message
-	err := c.do(ctx, http.MethodGet, "/messages/"+url.PathEscape(id), token, nil, &out)
 	return out, err
 }
 

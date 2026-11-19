@@ -18,14 +18,15 @@ type Entry struct {
 	Status     string
 	ErrorCode  string
 	ExternalID string
+	CampaignID string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }
 
 func (s *Store) AddEntry(e Entry) (int64, error) {
 	now := s.stamp()
-	res, err := s.db.Exec(`INSERT INTO timeline (lead_id, kind, body, status, error_code, external_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
-		e.LeadID, e.Kind, e.Body, e.Status, e.ErrorCode, e.ExternalID, now, now)
+	res, err := s.db.Exec(`INSERT INTO timeline (lead_id, kind, body, status, error_code, external_id, campaign_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+		e.LeadID, e.Kind, e.Body, e.Status, e.ErrorCode, e.ExternalID, e.CampaignID, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -33,7 +34,7 @@ func (s *Store) AddEntry(e Entry) (int64, error) {
 }
 
 func (s *Store) Timeline(leadID string) ([]Entry, error) {
-	rows, err := s.db.Query(`SELECT id, lead_id, kind, body, status, error_code, external_id, created_at, updated_at FROM timeline WHERE lead_id = ? ORDER BY id DESC`, leadID)
+	rows, err := s.db.Query(`SELECT id, lead_id, kind, body, status, error_code, external_id, campaign_id, created_at, updated_at FROM timeline WHERE lead_id = ? ORDER BY id DESC`, leadID)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +43,7 @@ func (s *Store) Timeline(leadID string) ([]Entry, error) {
 	for rows.Next() {
 		var e Entry
 		var created, updated string
-		if err := rows.Scan(&e.ID, &e.LeadID, &e.Kind, &e.Body, &e.Status, &e.ErrorCode, &e.ExternalID, &created, &updated); err != nil {
+		if err := rows.Scan(&e.ID, &e.LeadID, &e.Kind, &e.Body, &e.Status, &e.ErrorCode, &e.ExternalID, &e.CampaignID, &created, &updated); err != nil {
 			return nil, err
 		}
 		e.CreatedAt, _ = time.Parse(TimeFormat, created)
@@ -55,8 +56,8 @@ func (s *Store) Timeline(leadID string) ([]Entry, error) {
 func (s *Store) MessageByExternalID(externalID string) (Entry, bool, error) {
 	var e Entry
 	var created, updated string
-	err := s.db.QueryRow(`SELECT id, lead_id, kind, body, status, error_code, external_id, created_at, updated_at FROM timeline WHERE kind = ? AND external_id = ? LIMIT 1`, KindMessageOut, externalID).
-		Scan(&e.ID, &e.LeadID, &e.Kind, &e.Body, &e.Status, &e.ErrorCode, &e.ExternalID, &created, &updated)
+	err := s.db.QueryRow(`SELECT id, lead_id, kind, body, status, error_code, external_id, campaign_id, created_at, updated_at FROM timeline WHERE kind = ? AND external_id = ? LIMIT 1`, KindMessageOut, externalID).
+		Scan(&e.ID, &e.LeadID, &e.Kind, &e.Body, &e.Status, &e.ErrorCode, &e.ExternalID, &e.CampaignID, &created, &updated)
 	if err != nil {
 		return Entry{}, false, ignoreNoRows(err)
 	}
@@ -68,12 +69,6 @@ func (s *Store) MessageByExternalID(externalID string) (Entry, bool, error) {
 func (s *Store) UpdateMessageStatus(id int64, status, errorCode string) error {
 	_, err := s.db.Exec(`UPDATE timeline SET status = ?, error_code = ?, updated_at = ? WHERE id = ?`, status, errorCode, s.stamp(), id)
 	return err
-}
-
-func (s *Store) HasOutboundMessage() (bool, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM timeline WHERE kind = ?`, KindMessageOut).Scan(&n)
-	return n > 0, err
 }
 
 func (s *Store) HasPendingMessages(leadID string) (bool, error) {

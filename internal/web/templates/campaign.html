@@ -1,0 +1,72 @@
+{{define "campaignProgress"}}
+{{$c := .Campaign}}
+<div class="row" style="gap:10px;margin-bottom:14px;justify-content:space-between">
+  <p class="row" style="gap:8px"><span class="chip {{campaignClass $c.Status}}">{{campaignLabel $c.Status}}</span>{{if $c.PauseReason}}<span class="muted small">Motivo: {{pauseReason $c.PauseReason}}</span>{{end}}</p>
+  <div class="actions">
+    {{if $c.CanPause}}<form method="post" action="/campanhas/{{$c.ID}}/pausar"><button class="btn secondary small" type="submit" data-no-loading>Pausar</button></form>{{end}}
+    {{if $c.CanResume}}<form method="post" action="/campanhas/{{$c.ID}}/retomar"><button class="btn small" type="submit" data-no-loading>Retomar</button></form>{{end}}
+  </div>
+</div>
+<div class="progress" role="progressbar" aria-valuenow="{{$c.Progress.Percent}}" aria-valuemin="0" aria-valuemax="100"><i style="width:{{$c.Progress.Percent}}%"></i></div>
+<p class="muted small">{{$c.Progress.Percent}}% processado</p>
+<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr));margin:14px 0">
+  <div class="stat"><b>{{$c.Progress.Total}}</b><span>Contatos</span></div>
+  <div class="stat"><b>{{$c.Progress.Sent}}</b><span>Enviadas</span></div>
+  <div class="stat"><b>{{$c.Progress.Delivered}}</b><span>Entregues</span></div>
+  <div class="stat"><b>{{$c.Progress.Read}}</b><span>Lidas</span></div>
+  <div class="stat"><b>{{$c.Progress.Failed}}</b><span>Falhas</span></div>
+  <div class="stat"><b>{{$c.Progress.Pending}}</b><span>Pendentes</span></div>
+</div>
+<h3 style="margin:18px 0 8px">Mensagens</h3>
+{{if .Messages}}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Lead</th><th>Celular</th><th>Status</th></tr></thead>
+    <tbody>
+      {{range .Messages}}
+      <tr>
+        <td><a href="/leads/{{.LeadID}}">{{.LeadName}}</a></td>
+        <td class="mono">{{phone .Phone}}</td>
+        <td><span class="chip {{msgClass .Entry.Status}}">{{msgLabel .Entry.Status}}</span>{{if eq .Entry.Status "failed"}} <span class="muted small">código {{.Entry.ErrorCode}}</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<p class="muted">Os status de cada mensagem aparecem aqui assim que os webhooks <code>message.*</code> chegarem.</p>
+{{end}}
+{{if not $c.Terminal}}<p class="live small" style="margin-top:14px" data-pending>{{if $c.CanResume}}Campanha pausada. Retome para continuar os envios.{{else}}Acompanhando por webhook, ao vivo…{{end}}</p>{{end}}
+{{end}}
+
+{{define "content"}}
+{{$c := .Data.Campaign}}
+<div class="page-head">
+  <div>
+    <div class="crumbs"><a href="/campanhas">Campanhas</a> / {{$c.Name}}</div>
+    <h1>{{$c.Name}}</h1>
+    <p class="muted mono" style="margin-top:6px">{{$c.TemplateName}}</p>
+  </div>
+</div>
+
+<div class="grid cols-main">
+  <section class="card" aria-labelledby="cp-title">
+    <header><h2 id="cp-title">Progresso</h2></header>
+    <div data-refresh-url="/campanhas/{{$c.ID}}/progresso" data-refresh-seconds="2" data-refresh-while="[data-pending]">
+      {{template "campaignProgress" .Data}}
+    </div>
+  </section>
+
+  <section class="card">
+    <header><h2>Detalhes</h2></header>
+    <dl class="details-list">
+      <div><dt>Campanha</dt><dd class="mono">{{$c.ID}}</dd></div>
+      <div><dt>Modelo</dt><dd class="mono">{{$c.TemplateID}}</dd></div>
+      <div><dt>Público</dt><dd class="mono">{{$c.AudienceID}}</dd></div>
+      <div><dt>Leads no público</dt><dd>{{$c.LeadCount}}</dd></div>
+      <div><dt>Criada em</dt><dd>{{datetime $c.CreatedAt}}</dd></div>
+    </dl>
+    <p class="small muted" style="margin-top:14px">Os eventos <code>campaign.*</code> e <code>message.*</code> desta campanha aparecem em <a href="/eventos">Eventos</a>.</p>
+  </section>
+</div>
+{{end}}

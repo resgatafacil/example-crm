@@ -24,6 +24,7 @@ type connectionData struct {
 	Scopes      []string
 	Sandbox     bool
 	HasAppKey   bool
+	MetaResult  string
 }
 
 func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +36,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
 	data := connectionData{
 		Conn: conn, Found: found, State: "none", WebhookURL: s.cfg.WebhookURL(), RedirectURI: s.cfg.RedirectURI(),
 		Scopes: resgata.DefaultScopes, Sandbox: s.cfg.Sandbox(), HasAppKey: s.cfg.AppKey != "",
+		MetaResult: r.URL.Query().Get("meta"),
 	}
 	if found {
 		data.State = conn.State
@@ -79,6 +81,26 @@ func (s *Server) loadLive(r *http.Request, token string, data *connectionData) {
 	} else if data.Error == "" {
 		data.Error = s.describeAPIError(err)
 	}
+}
+
+func (s *Server) metaLink(w http.ResponseWriter, r *http.Request) {
+	_, token, connected := s.token(r)
+	if !connected {
+		s.redirect(w, r, "/integracao", "error", "Conecte o CRM ao Resgata Fácil antes de vincular a Meta.")
+		return
+	}
+	simulate := ""
+	if s.cfg.Sandbox() && r.URL.Query().Get("simular") == "falha" {
+		simulate = "failed"
+	}
+	ctx, cancel := s.apiContext(r)
+	defer cancel()
+	target, err := s.client.StartMetaLink(ctx, token, s.cfg.PublicURL+"/integracao", simulate)
+	if err != nil {
+		s.redirect(w, r, "/integracao", "error", s.describeAPIError(err))
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 type eventRow struct {

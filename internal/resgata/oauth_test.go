@@ -44,7 +44,7 @@ func TestAuthorizeURLCarriesPKCEAndScopes(t *testing.T) {
 	if q.Get("code_verifier") != "" || strings.Contains(raw, verifier) {
 		t.Fatal("the verifier must never be sent to the authorize endpoint")
 	}
-	if q.Get("scope") != "numbers:read messages:send messages:read contacts:read" || q.Get("external_ref") != "ref-1" || q.Get("state") != "st" {
+	if q.Get("scope") != "numbers:read templates:read templates:write audiences:write campaigns:read campaigns:write" || q.Get("external_ref") != "ref-1" || q.Get("state") != "st" {
 		t.Fatalf("unexpected params: %v", q)
 	}
 }
