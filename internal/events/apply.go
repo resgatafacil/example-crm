@@ -3,12 +3,15 @@ package events
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
 var statusRank = map[string]int{"queued": 0, "sent": 1, "delivered": 2, "read": 3}
+
+var messageMu sync.Mutex
 
 func Apply(s *store.Store, event resgata.Event) (string, error) {
 	switch event.Type {
@@ -18,6 +21,10 @@ func Apply(s *store.Store, event resgata.Event) (string, error) {
 		return messageStatus(s, event)
 	case resgata.EventContactOptedOut:
 		return optedOut(s, event)
+	case resgata.EventCampaignStarted, resgata.EventCampaignPaused, resgata.EventCampaignFinished, resgata.EventCampaignFailed:
+		return campaignChanged(s, event)
+	case resgata.EventTemplateApproved, resgata.EventTemplateRejected, resgata.EventTemplateChanged:
+		return templateChanged(event)
 	case resgata.EventConnectionRevoked:
 		return "connection revoked", s.RevokeConnection()
 	case resgata.EventConnectionCreated, resgata.EventNumberConnected, resgata.EventNumberDisconnected, resgata.EventPing:
@@ -77,6 +84,8 @@ func createLeadFromInbound(s *store.Store, phone, name string) (store.Lead, erro
 }
 
 func messageStatus(s *store.Store, event resgata.Event) (string, error) {
+	messageMu.Lock()
+	defer messageMu.Unlock()
 	var data resgata.MessageData
 	if err := json.Unmarshal(event.Data, &data); err != nil {
 		return "", err
@@ -97,7 +106,17 @@ func messageStatus(s *store.Store, event resgata.Event) (string, error) {
 	if !advances(entry.Status, status) {
 		return fmt.Sprintf("kept %s (late %s event)", entry.Status, status), nil
 	}
-	return "message " + status, s.UpdateMessageStatus(entry.ID, status, code)
+	if err := s.UpdateMessageStatus(entry.ID, status, code); err != nil {
+		return "", err
+	}
+	return "message " + status, refreshCampaign(s, entry.CampaignID)
+}
+
+func refreshCampaign(s *store.Store, campaignID string) error {
+	if campaignID == "" {
+		return nil
+	}
+	return s.RefreshCampaignProgress(campaignID)
 }
 
 func addUnknownOutbound(s *store.Store, data resgata.MessageData, status, code string) (string, error) {
@@ -105,8 +124,65 @@ func addUnknownOutbound(s *store.Store, data resgata.MessageData, status, code s
 	if err != nil || !found {
 		return "message of an unknown contact ignored", err
 	}
-	_, err = s.AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindMessageOut, Body: data.Message.Text, Status: status, ErrorCode: code, ExternalID: data.Message.ID})
-	return "message sent outside the CRM added to " + lead.Nome, err
+	body := data.Message.Text
+	campaignID := data.Message.CampaignID
+	if campaign, known, err := s.Campaign(campaignID); err == nil && known {
+		body = fmt.Sprintf("Campanha “%s” · modelo %s", campaign.Name, campaign.TemplateName)
+	} else {
+		campaignID = ""
+	}
+	if _, err = s.AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindMessageOut, Body: body, Status: status, ErrorCode: code, ExternalID: data.Message.ID, CampaignID: campaignID}); err != nil {
+		return "", err
+	}
+	if campaignID != "" {
+		return "campaign message added to " + lead.Nome, refreshCampaign(s, campaignID)
+	}
+	return "message sent outside the CRM added to " + lead.Nome, nil
+}
+
+func campaignChanged(s *store.Store, event resgata.Event) (string, error) {
+	var data resgata.CampaignEventData
+	if err := json.Unmarshal(event.Data, &data); err != nil {
+		return "", err
+	}
+	applied, err := ApplyCampaign(s, data.Campaign)
+	if err != nil {
+		return "", err
+	}
+	if !applied {
+		return "campaign of another source ignored", nil
+	}
+	return "campaign " + data.Campaign.Name + " is " + data.Campaign.Status, nil
+}
+
+func ApplyCampaign(s *store.Store, remote resgata.Campaign) (bool, error) {
+	local, found, err := s.Campaign(remote.ID)
+	if err != nil || !found {
+		return false, err
+	}
+	progress := store.Progress{
+		Total: remote.Progress.Total, Sent: remote.Progress.Sent, Delivered: remote.Progress.Delivered,
+		Read: remote.Progress.Read, Failed: remote.Progress.Failed, Skipped: remote.Progress.Skipped,
+	}
+	if progress.Total == 0 {
+		progress.Total = local.Progress.Total
+	}
+	status, pauseReason := remote.Status, remote.PauseText()
+	if local.Terminal() && !(store.Campaign{Status: remote.Status}).Terminal() {
+		status, pauseReason = local.Status, local.PauseReason
+	}
+	if err := s.SetCampaignRemote(local.ID, status, pauseReason, progress); err != nil {
+		return false, err
+	}
+	return true, s.RefreshCampaignProgress(local.ID)
+}
+
+func templateChanged(event resgata.Event) (string, error) {
+	var data resgata.TemplateEventData
+	if err := json.Unmarshal(event.Data, &data); err != nil {
+		return "", err
+	}
+	return "template " + data.Template.Name + " is " + data.Template.Status, nil
 }
 
 func advances(current, next string) bool {

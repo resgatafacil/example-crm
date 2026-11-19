@@ -3,8 +3,9 @@
 A small, readable CRM written in Go that shows partners how to integrate with the
 **Resgata Fácil Platform API**: OAuth (authorization code with PKCE), the REST API and
 signed webhooks. It also exposes a **CRMSOLUT-style leads API**, so the whole flow works
-end to end: Resgata reads this CRM's leads, and this CRM sends messages through Resgata
-and reacts to the webhooks that come back.
+end to end: Resgata reads this CRM's leads, and this CRM sends campaigns through Resgata
+and reacts to the webhooks that come back. The Platform API has no individual sends:
+messages leave only through campaigns (an approved template plus an audience).
 
 The CRM itself is fictional ("Funil Demo"). Everything about the integration is real and
 meant to be copied.
@@ -18,14 +19,22 @@ meant to be copied.
 
 - **Funnel board, leads and timeline**: flows with ordered steps, leads with stage, opt-out
   flag and a timeline of notes, messages and replies.
-- **OAuth with PKCE** to connect a user to Resgata Fácil, with friendly errors, a setup
-  checklist (`GET /connection/setup`) and the workspace numbers (`GET /numbers`).
-- **Send a WhatsApp message** from a lead (`POST /messages`) and watch the status move to
-  sent, delivered, read or failed as webhooks arrive.
+- **OAuth with PKCE** to connect a user to Resgata Fácil, with friendly errors, and the
+  **Meta link** the customer also does (`POST /connection/meta-link`).
+- **Readiness checklist** (`GET /connection/setup`): the twelve steps that decide whether a
+  customer can send (Meta linked, business verified, payment method, approved template…),
+  each `complete`, `incomplete`, `blocked` or `unknown`, with the action to fix it.
+- **Templates** (`GET/POST /templates`): list, create and follow the Meta approval, with
+  `template.*` events.
+- **"Enviar campanha" workflow step**: pick an approved template, pick leads from a funnel
+  step, map each `{{n}}` (lead name, a lead field or fixed text), and the CRM calls
+  `POST /audiences` then `POST /campaigns`. Progress, pause and resume follow `campaign.*`
+  and `message.*` webhooks live.
 - **Webhook receiver** with signature verification, replay window, deduplication and an
   events page (valid and rejected deliveries, expandable JSON, filter by type).
 - **Sandbox tools**: fire any documented event, simulate a customer reply or an opt-out,
-  create numbers and change their state, reset the sandbox.
+  create numbers and change their state, reset the sandbox. Put the sandbox magic phone
+  numbers in a campaign to see every outcome (delivered, read, failed, opt-out, reply).
 - **CRMSOLUT-style API** (`/api/v1/unidades`, `/fluxos`, `/leads`) with per-unit bearer
   keys, cursor pagination and rate limits, in the exact shape Resgata's CRMSOLUT
   integration consumes.
@@ -76,7 +85,11 @@ make run
 ```
 
 The mock sends signed webhooks to `http://localhost:8080/webhooks/resgata` (override with
-`MOCK_WEBHOOK_URL`). It understands the sandbox magic phone numbers.
+`MOCK_WEBHOOK_URL`). It implements the same endpoints and shapes as the sandbox: the
+readiness checklist, the Meta link, templates (approved in seconds; a name containing
+`_reject` is rejected and one with `_pending` stays in review), audiences, campaigns with
+progress, pause and resume, `campaign.*`, `template.*` and `message.*` events with `cmp_…`
+ids, and the sandbox magic phone numbers. `POST /messages` answers `404`, like the real API.
 
 ### 3. Docker
 
@@ -216,8 +229,8 @@ once, so run it again for every sign-in.
  │            │ ◄───────────────────── │  /api/platform/v1      │
  │            │  token (stored         │                       │
  │            │  encrypted)            │                       │
- │            │  4. GET /connection/setup, /numbers             │
- │            │  5. POST /messages ───────────────────────────► │
+ │            │  4. GET /connection/setup, /templates           │
+ │            │  5. POST /audiences, POST /campaigns ─────────► │
  │            │                        │                       │
  │            │  6. signed webhooks    │   WhatsApp / sandbox   │
  │            │ ◄───────────────────── │   message.sent ...     │
@@ -232,28 +245,45 @@ once, so run it again for every sign-in.
    (kept server side), then redirects to `/autorizar` (live) or
    `/oauth/sandbox/authorize` (sandbox) with `client_id`, `redirect_uri`, `state`,
    `code_challenge` (S256), `scope` and `external_ref`. The verifier never leaves the server.
+   The scopes are `numbers:read templates:read templates:write audiences:write
+   campaigns:read campaigns:write`; there is no message scope.
 2. **Callback.** `GET /resgata/callback` checks the one-time `state`, handles
    `error=access_denied|external_ref_in_use`, then exchanges the code at
    `POST /oauth/token` with the verifier. The returned connection token is encrypted with
    AES-GCM before it is stored.
-3. **Setup checklist.** `GET /connection/setup` returns what the end user still has to do
-   in Resgata. The UI draws the steps and links to each `action_url`.
-4. **Send.** `POST /messages` with `to`, `text` and an optional `number_id`. In live,
-   Resgata answers `501 not_available` today; the UI explains it. The CRM refuses to send
-   to leads that opted out.
-5. **Receive.** Resgata calls `POST /webhooks/resgata`. The handler:
+3. **Meta and readiness.** Besides Resgata, the customer links their WhatsApp Business
+   account through Meta. `GET /resgata/meta` calls `POST /connection/meta-link` with a
+   `return_url` and redirects to the returned link; the customer comes back to
+   `/integracao`. `GET /connection/setup` returns every step with its `status`, `detail`
+   and `action_url`; the UI draws them and offers the Meta link while `meta_linked` is not
+   complete.
+4. **Templates.** `GET /templates` and `POST /templates` (`name`, `category`, `language`,
+   `body.text` with one `body.examples` entry per variable, optional `footer`). Only
+   `approved` templates can be used; Meta decides, so the status moves on its own and
+   `template.approved|rejected|status_changed` arrive by webhook.
+5. **Send a campaign.** There is no individual send. The "Enviar campanha" step builds the
+   audience from the CRM leads (`POST /audiences`, `contacts[].phone`, `name`,
+   `variables`) and creates the campaign (`POST /campaigns` with `template_id`,
+   `audience_id` and `variables` such as `{"1": "@nome", "2": "@variavel_1"}`). Leads that
+   opted out never enter the audience. `POST /campaigns/{id}/pause` and `/resume` stop and
+   restart it. API errors (`meta_not_ready`, `no_slot_available`, `template_not_approved`,
+   `waba_restricted`, `spend_limit_reached`…) are turned into plain explanations.
+6. **Receive.** Resgata calls `POST /webhooks/resgata`. The handler:
    - reads the **raw body** and verifies `X-Resgata-Signature` (`t=<unix>,v1=<hex>`):
      `HMAC_SHA256(secret, t + "." + rawBody)`, constant-time comparison against **every**
      `v1`, rejected when `|now - t| > 300s`;
    - stores the event (rejected ones too, for the events page);
    - **deduplicates** on `X-Resgata-Event-Id` (delivery is at least once and unordered);
    - applies it: `message.*` statuses only ever move forward (a late `sent` never
-     overwrites `read`; `failed` is final), `message.received` lands on the lead matching
-     the phone (or creates a lead in the first step of the first flow),
-     `contact.opted_out` sets `opt_out`, `connection.revoked` deletes the token;
+     overwrites `read`; `failed` is final) and, when `message.campaign_id` is one of this
+     CRM's campaigns, land on the matching lead and update the campaign counters;
+     `campaign.*` events update status and progress (a late `campaign.started` never
+     reopens a finished campaign); `message.received` lands on the lead matching the phone
+     (or creates a lead in the first step of the first flow), `contact.opted_out` sets
+     `opt_out`, `connection.revoked` deletes the token;
    - answers `2xx` quickly. If processing fails it answers `500` and the event is **not**
      marked processed, so the retry is applied instead of dropped as a duplicate.
-6. **Let Resgata read your leads.** Create a key on **Chaves da API** and give Resgata the
+7. **Let Resgata read your leads.** Create a key on **Chaves da API** and give Resgata the
    base URL plus the key (see below).
 
 ## The CRMSOLUT-style API
@@ -295,7 +325,8 @@ reader against this API.
 
 | Concept | File |
 |---|---|
-| Platform API client (`/connection`, `/numbers`, `/messages`, sandbox helpers) | `internal/resgata/client.go` |
+| Platform API client (`/connection`, `/numbers`, sandbox helpers) | `internal/resgata/client.go` |
+| Templates, audiences, campaigns and Meta link client | `internal/resgata/campaigns.go` |
 | PKCE verifier and challenge, authorize URL, OAuth error messages | `internal/resgata/oauth.go` |
 | Webhook signature verification and signing | `internal/resgata/webhook.go` |
 | Event envelope types, failure code explanations | `internal/resgata/events.go` |
@@ -305,7 +336,9 @@ reader against this API.
 | Token encryption at rest (AES-GCM) | `internal/crypto/box.go` |
 | CRMSOLUT-style API and rate limiter | `internal/crmapi/` |
 | Connection page, setup checklist, numbers | `internal/web/connection.go`, `internal/web/templates/connection.html` |
-| Send a message from a lead | `internal/web/leads.go` (`leadMessage`) |
+| Templates screen | `internal/web/modelos.go`, `internal/web/templates/templates.html` |
+| "Enviar campanha" step, progress, pause and resume | `internal/web/campanhas.go`, `internal/web/templates/campaign_new.html`, `campaign.html` |
+| Campaign state kept from webhooks | `internal/store/campaigns.go`, `internal/events/apply.go` |
 | Sandbox tools | `internal/web/sandbox.go` |
 | Offline mock of the platform | `internal/mockresgata/mock.go` |
 | Environment configuration and the setup screen | `internal/config/config.go`, `internal/web/templates/setup.html` |

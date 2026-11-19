@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"git.resgatafacil.com/resgatafacil/example-crm/internal/resgata"
 	"git.resgatafacil.com/resgatafacil/example-crm/internal/store"
 )
 
@@ -126,14 +125,12 @@ func (s *Server) renderLeadFormErrors(w http.ResponseWriter, r *http.Request, id
 }
 
 type leadData struct {
-	Lead       store.Lead
-	Timeline   []store.Entry
-	Flows      []store.Flow
-	Numbers    []resgata.Number
-	NumbersErr string
-	Connected  bool
-	Pending    bool
-	Sandbox    bool
+	Lead      store.Lead
+	Timeline  []store.Entry
+	Flows     []store.Flow
+	Connected bool
+	Pending   bool
+	Sandbox   bool
 }
 
 func (s *Server) loadLead(w http.ResponseWriter, r *http.Request) (store.Lead, bool) {
@@ -159,16 +156,7 @@ func (s *Server) lead(w http.ResponseWriter, r *http.Request) {
 	data.Flows, _ = s.st(r).Flows()
 	data.Pending, _ = s.st(r).HasPendingMessages(lead.ID)
 
-	if _, token, connected := s.token(r); connected {
-		data.Connected = true
-		ctx, cancel := s.apiContext(r)
-		defer cancel()
-		numbers, err := s.client.Numbers(ctx, token)
-		if err != nil {
-			data.NumbersErr = s.describeAPIError(err)
-		}
-		data.Numbers = numbers
-	}
+	_, _, data.Connected = s.token(r)
 	s.render(w, r, "lead", lead.Nome, "leads", data)
 }
 
@@ -228,56 +216,4 @@ func (s *Server) leadNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.redirect(w, r, "/leads/"+lead.ID, "success", "Nota salva.")
-}
-
-func (s *Server) leadMessage(w http.ResponseWriter, r *http.Request) {
-	lead, ok := s.loadLead(w, r)
-	if !ok {
-		return
-	}
-	back := "/leads/" + lead.ID
-	_ = r.ParseForm()
-	text := strings.TrimSpace(r.FormValue("texto"))
-
-	switch {
-	case lead.OptOut:
-		s.redirect(w, r, back, "error", "Este lead pediu para não receber mensagens. O envio foi bloqueado.")
-		return
-	case text == "" || len(text) > 1000:
-		s.redirect(w, r, back, "error", "Escreva a mensagem (até 1000 caracteres).")
-		return
-	}
-	_, token, connected := s.token(r)
-	if !connected {
-		s.redirect(w, r, back, "error", "Conecte o CRM ao Resgata Fácil antes de enviar mensagens.")
-		return
-	}
-
-	numberID := 0
-	if raw := r.FormValue("numero"); raw != "" {
-		for _, c := range raw {
-			if c < '0' || c > '9' {
-				s.redirect(w, r, back, "error", "Número inválido.")
-				return
-			}
-			numberID = numberID*10 + int(c-'0')
-		}
-	}
-
-	ctx, cancel := s.apiContext(r)
-	defer cancel()
-	message, err := s.client.SendMessage(ctx, token, store.Digits(lead.Celular), text, numberID)
-	if err != nil {
-		s.redirect(w, r, back, "error", s.describeAPIError(err))
-		return
-	}
-	status := message.Status
-	if status == "" {
-		status = "queued"
-	}
-	if _, err := s.st(r).AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindMessageOut, Body: text, Status: status, ExternalID: message.ID}); err != nil {
-		s.serverError(w, err)
-		return
-	}
-	s.redirect(w, r, back, "success", "Mensagem enviada ao Resgata Fácil. Os status chegam por webhook.")
 }

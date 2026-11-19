@@ -86,7 +86,7 @@ func (s *Server) parseTemplates() error {
 	if err != nil {
 		return err
 	}
-	pages := []string{"dashboard", "board", "leads", "lead_form", "lead", "connection", "events", "sandbox", "keys", "notfound"}
+	pages := []string{"dashboard", "board", "leads", "lead_form", "lead", "connection", "events", "sandbox", "keys", "templates", "campaigns", "campaign", "campaign_new", "notfound"}
 	s.pages = map[string]*template.Template{}
 	for _, name := range pages {
 		clone, err := base.Clone()
@@ -142,14 +142,26 @@ func (s *Server) registerAdmin(mux *http.ServeMux) {
 	mux.HandleFunc("POST /leads/{id}", s.leadUpdate)
 	mux.HandleFunc("POST /leads/{id}/mover", s.leadMove)
 	mux.HandleFunc("POST /leads/{id}/nota", s.leadNote)
-	mux.HandleFunc("POST /leads/{id}/mensagem", s.leadMessage)
 	mux.HandleFunc("GET /leads/{id}/linha-do-tempo", s.leadTimeline)
 
 	mux.HandleFunc("GET /integracao", s.connection)
 	mux.HandleFunc("GET /resgata/conectar", s.oauthStart)
 	mux.HandleFunc("GET /resgata/callback", s.oauthCallback)
+	mux.HandleFunc("GET /resgata/meta", s.metaLink)
 	mux.HandleFunc("POST /resgata/atalho", s.connectWithAppKey)
 	mux.HandleFunc("POST /resgata/desconectar", s.disconnect)
+
+	mux.HandleFunc("GET /modelos", s.templatesPage)
+	mux.HandleFunc("GET /modelos/lista", s.templatesFragment)
+	mux.HandleFunc("POST /modelos", s.templateCreate)
+
+	mux.HandleFunc("GET /campanhas", s.campaignsPage)
+	mux.HandleFunc("GET /campanhas/nova", s.campaignNewPage)
+	mux.HandleFunc("POST /campanhas", s.campaignCreate)
+	mux.HandleFunc("GET /campanhas/{id}", s.campaignPage)
+	mux.HandleFunc("GET /campanhas/{id}/progresso", s.campaignFragment)
+	mux.HandleFunc("POST /campanhas/{id}/pausar", s.campaignPause)
+	mux.HandleFunc("POST /campanhas/{id}/retomar", s.campaignResume)
 
 	mux.HandleFunc("GET /eventos", s.eventsPage)
 	mux.HandleFunc("GET /eventos/lista", s.eventsFragment)
@@ -365,14 +377,35 @@ func (s *Server) apiContext(r *http.Request) (context.Context, context.CancelFun
 	return context.WithTimeout(r.Context(), apiTimeout)
 }
 
+var apiErrorMessages = map[string]string{
+	"meta_not_ready":         "Vincule o WhatsApp Business à Meta antes de continuar. Abra a integração e conclua o passo da Meta.",
+	"no_slot_available":      "A conta do cliente não tem um número livre no plano para esta conexão. Libere um número no Resgata Fácil e tente de novo.",
+	"template_not_approved":  "A Meta ainda não aprovou este modelo. Espere a aprovação para usá-lo em campanhas.",
+	"waba_restricted":        "A Meta restringiu a conta do WhatsApp Business do cliente. Novas campanhas ficam bloqueadas até a restrição acabar.",
+	"spend_limit_reached":    "O limite de gasto do cliente foi atingido. Ajuste o limite no Resgata Fácil para continuar.",
+	"empty_audience":         "O público não tem nenhum contato que possa receber a campanha.",
+	"no_valid_contacts":      "Nenhum dos leads escolhidos tem um celular válido para o WhatsApp.",
+	"plan_not_allowed":       "O plano do cliente não permite públicos importados por API.",
+	"campaign_not_paused":    "A campanha não está pausada.",
+	"campaign_not_active":    "A campanha já terminou ou não está em andamento.",
+	"daily_limit_reached":    "O limite diário foi atingido. O próximo lote sai sozinho no dia seguinte.",
+	"campaign_limit_reached": "A campanha atingiu o limite de contatos configurado.",
+	"campaign_expired":       "O prazo de envio da campanha terminou.",
+	"template_in_progress":   "Este modelo está sendo criado agora. Tente de novo em alguns segundos.",
+	"meta_unavailable":       "A Meta não respondeu agora. Tente de novo em instantes.",
+}
+
 func (s *Server) describeAPIError(err error) string {
 	var apiErr *resgata.APIError
 	if asAPIError(err, &apiErr) {
+		if message, ok := apiErrorMessages[apiErr.Type]; ok {
+			return message
+		}
 		switch apiErr.Status {
 		case http.StatusUnauthorized:
 			return "O Resgata Fácil recusou o token desta conexão. Reconecte para gerar um novo."
-		case http.StatusNotImplemented:
-			return "O envio de mensagens em produção ainda não está disponível pela API do Resgata Fácil. Use o sandbox para ver o fluxo completo."
+		case http.StatusForbidden:
+			return "O token desta conexão não tem a permissão necessária. Reconecte para autorizar os novos escopos."
 		case http.StatusTooManyRequests:
 			return "O Resgata Fácil limitou as requisições. Espere um minuto e tente de novo."
 		}

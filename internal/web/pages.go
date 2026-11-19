@@ -31,7 +31,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	conn, _, _ := s.st(r).Connection()
 	validEvents, _ := s.st(r).CountValidEvents()
-	sent, _ := s.st(r).HasOutboundMessage()
+	sent, _ := s.st(r).HasCampaign()
 	recent, _ := s.st(r).Events("", 6)
 
 	checklist := []checklistItem{
@@ -39,7 +39,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		{Title: "Configurar as variáveis de ambiente", Hint: "Chaves e segredos ficam só no .env, nunca no código. Validadas ao iniciar.", Done: true},
 		{Title: "Registrar o endpoint de webhook", Hint: "Cadastre " + s.cfg.WebhookURL() + " no portal e envie um evento de teste.", Done: validEvents > 0, Href: "/eventos", Label: "Ver eventos"},
 		{Title: "Conectar ao Resgata Fácil", Hint: "Autorização OAuth com PKCE: o cliente aprova e o CRM recebe um token.", Done: conn.State == store.StateConnected, Href: "/integracao", Label: "Abrir integração"},
-		{Title: "Enviar uma mensagem de teste", Hint: "Abra um lead e envie uma mensagem; acompanhe os status chegando por webhook.", Done: sent, Href: "/funil", Label: "Escolher um lead"},
+		{Title: "Enviar uma campanha de teste", Hint: "Escolha um modelo aprovado e os leads de uma etapa do funil; acompanhe os status chegando por webhook.", Done: sent, Href: "/campanhas/nova", Label: "Criar campanha"},
 	}
 	done := 0
 	for _, item := range checklist {

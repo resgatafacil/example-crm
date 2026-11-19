@@ -300,3 +300,15 @@ pre.light { background: #f6f8f7; color: var(--text); border: 1px solid var(--bor
   .gate .btn { width: 100%; }
 }
 .gate-steps li p { padding-top: 3px; }
+
+.step-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.step .step-actions .chip { font-size: 12px; }
+.flow { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; padding: 0; list-style: none; }
+.flow li { display: flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: #eef2f6; color: #4a5568; font-weight: 600; font-size: 13px; }
+.flow li span { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: #fff; color: #4a5568; font-size: 12px; }
+.flow li.on { background: #e6f7ee; color: #1b6d41; }
+.flow li.on span { background: var(--cta); color: var(--cta-text); }
+.mapping { display: grid; grid-template-columns: 56px minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
+.mapping label { font-weight: 700; color: var(--primary); }
+.template-preview { margin: 0 0 14px; padding: 12px 14px; border-left: 4px solid var(--cta); background: #f3fff8; border-radius: 8px; color: #0f3a28; white-space: pre-wrap; }
+@media (max-width: 720px) { .mapping { grid-template-columns: minmax(0, 1fr); } }

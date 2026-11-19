@@ -34,6 +34,8 @@
           <a href="/integracao"{{if eq .Active "connection"}} aria-current="page"{{end}}>{{icon "plug"}}Integração
             {{if .Resgata.Connected}}<span class="dot on" title="Conectado"></span>{{else if .Resgata.Revoked}}<span class="dot off" title="Desconectado"></span>{{else}}<span class="dot" title="Não conectado"></span>{{end}}
           </a>
+          <a href="/modelos"{{if eq .Active "templates"}} aria-current="page"{{end}}>{{icon "note"}}Modelos</a>
+          <a href="/campanhas"{{if eq .Active "campaigns"}} aria-current="page"{{end}}>{{icon "send"}}Campanhas</a>
           <a href="/eventos"{{if eq .Active "events"}} aria-current="page"{{end}}>{{icon "bolt"}}Eventos</a>
           {{if .Config.Sandbox}}<a href="/sandbox"{{if eq .Active "sandbox"}} aria-current="page"{{end}}>{{icon "flask"}}Sandbox</a>{{end}}
         </div>

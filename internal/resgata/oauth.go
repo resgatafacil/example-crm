@@ -8,7 +8,12 @@ import (
 	"strings"
 )
 
-var DefaultScopes = []string{"numbers:read", "messages:send", "messages:read", "contacts:read"}
+var DefaultScopes = []string{
+	"numbers:read",
+	"templates:read", "templates:write",
+	"audiences:write",
+	"campaigns:read", "campaigns:write",
+}
 
 func randomURLSafe(bytes int) string {
 	raw := make([]byte, bytes)
