@@ -43,7 +43,7 @@ type Page struct {
 	NextCursor string
 }
 
-var ErrBadCursor = errors.New("invalid cursor")
+var ErrBadCursor = errors.New("cursor inválido")
 
 const leadSelect = `SELECT l.id, l.nome, l.celular, COALESCE(l.email,''), l.estagio, l.opt_out,
 	l.unit_id, u.nome, l.flow_id, f.nome, l.step_id, s.nome, l.criado_em, l.alterado_em
@@ -197,7 +197,7 @@ func (s *Store) CreateLead(in LeadInput) (string, error) {
 		return "", err
 	}
 	if !ok {
-		return "", errors.New("unknown step")
+		return "", errors.New("etapa desconhecida")
 	}
 	id := newID("lead_", 8)
 	now := s.stamp()
@@ -219,7 +219,7 @@ func (s *Store) MoveLead(id, stepID string) error {
 		return err
 	}
 	if !ok {
-		return errors.New("unknown step")
+		return errors.New("etapa desconhecida")
 	}
 	_, err = s.db.Exec(`UPDATE leads SET step_id = ?, flow_id = ?, alterado_em = ? WHERE id = ?`, step.ID, step.FlowID, s.stamp(), id)
 	return err

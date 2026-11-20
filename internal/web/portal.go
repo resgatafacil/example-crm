@@ -93,7 +93,7 @@ func (s *Server) workspaceStore(id string) (*store.Store, bool) {
 	}
 	st, _, found, err := s.ws.Get(id)
 	if err != nil {
-		log.Printf("opening workspace %s: %v", id, err)
+		log.Printf("abrindo o workspace %s: %v", id, err)
 		return nil, false
 	}
 	if found {
@@ -132,7 +132,7 @@ func (s *Server) sessionFrom(r *http.Request) (workspaceSession, bool) {
 	}
 	st, info, found, err := s.ws.Get(id)
 	if err != nil {
-		log.Printf("loading workspace %s: %v", id, err)
+		log.Printf("carregando o workspace %s: %v", id, err)
 		return workspaceSession{}, false
 	}
 	if !found {
@@ -165,7 +165,7 @@ func (s *Server) portalLogin(w http.ResponseWriter, r *http.Request) {
 		s.renderGate(w, r, gateExpired)
 		return
 	case err != nil:
-		log.Printf("portal login refused: %v", err)
+		log.Printf("login pelo portal recusado: %v", err)
 		s.renderGate(w, r, gateInvalid)
 		return
 	}
@@ -211,11 +211,11 @@ func (s *Server) disconnectWorkspace(ctx context.Context, st *store.Store) {
 	}
 	token, err := s.box.Open(conn.TokenEncrypted)
 	if err != nil {
-		log.Printf("cannot decrypt a workspace token while cleaning up: %v", err)
+		log.Printf("não foi possível descriptografar o token de um workspace durante a limpeza: %v", err)
 		return
 	}
 	if err := s.client.Disconnect(ctx, token); err != nil && !resgata.IsStatus(err, http.StatusUnauthorized) {
-		log.Printf("disconnecting a workspace from Resgata: %v", err)
+		log.Printf("desconectando um workspace do Resgata: %v", err)
 	}
 }
 
@@ -235,7 +235,7 @@ func (s *Server) PurgeIdle(ctx context.Context) (int, error) {
 			cancel()
 		}
 		if err := s.ws.Delete(info.ID); err != nil {
-			log.Printf("purging workspace %s: %v", info.ID, err)
+			log.Printf("removendo o workspace %s: %v", info.ID, err)
 			continue
 		}
 		purged++
@@ -256,10 +256,10 @@ func (s *Server) RunPurger(ctx context.Context, every time.Duration) {
 		case <-ticker.C:
 			purged, err := s.PurgeIdle(ctx)
 			if err != nil {
-				log.Printf("purging idle workspaces: %v", err)
+				log.Printf("removendo workspaces ociosos: %v", err)
 			}
 			if purged > 0 {
-				log.Printf("purged %d idle workspace(s)", purged)
+				log.Printf("%d workspace(s) ocioso(s) removido(s)", purged)
 			}
 		}
 	}
@@ -286,7 +286,7 @@ func (s *Server) renderGate(w http.ResponseWriter, r *http.Request, kind gateKin
 
 	var buf bytes.Buffer
 	if err := s.pages["gate"].ExecuteTemplate(&buf, "gate", view); err != nil {
-		log.Printf("render gate: %v", err)
+		log.Printf("renderizando a tela de entrada: %v", err)
 		http.Error(w, "Acesso restrito.", status)
 		return
 	}

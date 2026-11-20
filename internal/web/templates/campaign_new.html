@@ -18,9 +18,9 @@
 {{if $d.Error}}<div class="notice error" style="margin-bottom:16px">{{icon "alert"}}<span>{{$d.Error}}</span></div>{{if or (hasPrefix $d.Error "Vincule") (hasPrefix $d.Error "A conta do cliente")}}<div style="margin-bottom:16px"><a class="btn secondary" href="/integracao">Abrir integração</a></div>{{end}}{{end}}
 
 <ol class="flow" aria-label="Etapas da automação">
-  <li class="on"><span>1</span>Modelo e leads</li>
-  <li{{if $d.Template}} class="on"{{end}}><span>2</span>Variáveis</li>
-  <li{{if $d.Template}} class="on"{{end}}><span>3</span>Revisar e enviar</li>
+  <li class="on"><span class="n">1</span> <b>Modelo e leads</b></li>
+  <li{{if $d.Template}} class="on"{{end}}><span class="n">2</span> <b>Variáveis</b></li>
+  <li{{if $d.Template}} class="on"{{end}}><span class="n">3</span> <b>Revisar e enviar</b></li>
 </ol>
 
 <div class="grid cols-main">

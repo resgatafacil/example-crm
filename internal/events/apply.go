@@ -26,11 +26,11 @@ func Apply(s *store.Store, event resgata.Event) (string, error) {
 	case resgata.EventTemplateApproved, resgata.EventTemplateRejected, resgata.EventTemplateChanged:
 		return templateChanged(event)
 	case resgata.EventConnectionRevoked:
-		return "connection revoked", s.RevokeConnection()
+		return "conexão revogada", s.RevokeConnection()
 	case resgata.EventConnectionCreated, resgata.EventNumberConnected, resgata.EventNumberDisconnected, resgata.EventPing:
-		return "recorded", nil
+		return "registrado", nil
 	default:
-		return "unknown event type recorded", nil
+		return "tipo de evento desconhecido registrado", nil
 	}
 }
 
@@ -50,20 +50,20 @@ func messageReceived(s *store.Store, event resgata.Event) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		note = " (new lead)"
+		note = " (novo lead)"
 	}
 	_, err = s.AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindMessageIn, Body: data.Message.Text, ExternalID: data.Message.ID})
-	return "reply added to " + lead.Nome + note, err
+	return "resposta adicionada a " + lead.Nome + note, err
 }
 
 func createLeadFromInbound(s *store.Store, phone, name string) (store.Lead, error) {
 	flows, err := s.Flows()
 	if err != nil || len(flows) == 0 {
-		return store.Lead{}, fmt.Errorf("no flow to receive new leads: %v", err)
+		return store.Lead{}, fmt.Errorf("nenhum fluxo para receber novos leads: %v", err)
 	}
 	units, err := s.Units()
 	if err != nil || len(units) == 0 {
-		return store.Lead{}, fmt.Errorf("no unit to receive new leads: %v", err)
+		return store.Lead{}, fmt.Errorf("nenhuma unidade para receber novos leads: %v", err)
 	}
 	initial := flows[0].Steps[0]
 	for _, st := range flows[0].Steps {
@@ -104,12 +104,12 @@ func messageStatus(s *store.Store, event resgata.Event) (string, error) {
 		return addUnknownOutbound(s, data, status, code)
 	}
 	if !advances(entry.Status, status) {
-		return fmt.Sprintf("kept %s (late %s event)", entry.Status, status), nil
+		return fmt.Sprintf("mantido %s (evento %s atrasado)", entry.Status, status), nil
 	}
 	if err := s.UpdateMessageStatus(entry.ID, status, code); err != nil {
 		return "", err
 	}
-	return "message " + status, refreshCampaign(s, entry.CampaignID)
+	return "mensagem " + status, refreshCampaign(s, entry.CampaignID)
 }
 
 func refreshCampaign(s *store.Store, campaignID string) error {
@@ -122,7 +122,7 @@ func refreshCampaign(s *store.Store, campaignID string) error {
 func addUnknownOutbound(s *store.Store, data resgata.MessageData, status, code string) (string, error) {
 	lead, found, err := s.LeadByPhone(store.E164(data.Message.To))
 	if err != nil || !found {
-		return "message of an unknown contact ignored", err
+		return "mensagem de contato desconhecido ignorada", err
 	}
 	body := data.Message.Text
 	campaignID := data.Message.CampaignID
@@ -135,9 +135,9 @@ func addUnknownOutbound(s *store.Store, data resgata.MessageData, status, code s
 		return "", err
 	}
 	if campaignID != "" {
-		return "campaign message added to " + lead.Nome, refreshCampaign(s, campaignID)
+		return "mensagem de campanha adicionada a " + lead.Nome, refreshCampaign(s, campaignID)
 	}
-	return "message sent outside the CRM added to " + lead.Nome, nil
+	return "mensagem enviada fora do CRM adicionada a " + lead.Nome, nil
 }
 
 func campaignChanged(s *store.Store, event resgata.Event) (string, error) {
@@ -150,9 +150,9 @@ func campaignChanged(s *store.Store, event resgata.Event) (string, error) {
 		return "", err
 	}
 	if !applied {
-		return "campaign of another source ignored", nil
+		return "campanha de outra origem ignorada", nil
 	}
-	return "campaign " + data.Campaign.Name + " is " + data.Campaign.Status, nil
+	return "campanha " + data.Campaign.Name + ": " + data.Campaign.Status, nil
 }
 
 func ApplyCampaign(s *store.Store, remote resgata.Campaign) (bool, error) {
@@ -182,7 +182,7 @@ func templateChanged(event resgata.Event) (string, error) {
 	if err := json.Unmarshal(event.Data, &data); err != nil {
 		return "", err
 	}
-	return "template " + data.Template.Name + " is " + data.Template.Status, nil
+	return "modelo " + data.Template.Name + ": " + data.Template.Status, nil
 }
 
 func advances(current, next string) bool {
@@ -205,10 +205,10 @@ func optedOut(s *store.Store, event resgata.Event) (string, error) {
 		return "", err
 	}
 	if !found {
-		return "opt-out of an unknown contact ignored", nil
+		return "opt-out de contato desconhecido ignorado", nil
 	}
 	if lead.OptOut {
-		return "already opted out", nil
+		return "opt-out já registrado", nil
 	}
 	if err := s.SetOptOut(lead.ID, true); err != nil {
 		return "", err
@@ -218,5 +218,5 @@ func optedOut(s *store.Store, event resgata.Event) (string, error) {
 		body = fmt.Sprintf("Pediu para parar de receber mensagens (frase: \"%s\").", data.MatchedPhrase)
 	}
 	_, err = s.AddEntry(store.Entry{LeadID: lead.ID, Kind: store.KindOptOut, Body: body})
-	return "opt-out recorded for " + lead.Nome, err
+	return "opt-out registrado para " + lead.Nome, err
 }

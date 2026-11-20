@@ -22,12 +22,12 @@ import (
 )
 
 func main() {
-	noSeed := flag.Bool("no-seed", false, "do not create demo data when the database is empty")
-	envFile := flag.String("env-file", ".env", "optional file with KEY=value lines")
+	noSeed := flag.Bool("no-seed", false, "não cria os dados de demonstração quando o banco está vazio")
+	envFile := flag.String("env-file", ".env", "arquivo opcional com linhas CHAVE=valor")
 	flag.Parse()
 
 	if err := config.LoadDotEnv(*envFile, func(k, v string) { _ = os.Setenv(k, v) }, os.LookupEnv); err != nil {
-		log.Fatalf("reading %s: %v", *envFile, err)
+		log.Fatalf("lendo %s: %v", *envFile, err)
 	}
 
 	cfg, problems := config.Load(os.Getenv)
@@ -52,12 +52,12 @@ func main() {
 	log.Printf("webhook endpoint: %s", cfg.WebhookURL())
 	switch {
 	case cfg.PortalMode():
-		log.Printf("portal gating is on: sign in through %s (workspaces in %s, idle after %s, at most %d)", cfg.PortalURL, cfg.DataDir, cfg.WorkspaceTTL, cfg.MaxWorkspaces)
+		log.Printf("acesso pelo portal ativado: entre por %s (workspaces em %s, ociosos após %s, no máximo %d)", cfg.PortalURL, cfg.DataDir, cfg.WorkspaceTTL, cfg.MaxWorkspaces)
 		if cfg.AdminPassword != "" {
-			log.Printf("ADMIN_PASSWORD is ignored while PORTAL_SSO_SECRET is set")
+			log.Printf("ADMIN_PASSWORD é ignorado enquanto PORTAL_SSO_SECRET estiver definido")
 		}
 	case cfg.AdminPassword == "":
-		log.Printf("ADMIN_PASSWORD is not set: the admin UI is open to anyone who can reach this address")
+		log.Printf("ADMIN_PASSWORD não está definido: a interface administrativa está aberta para quem alcançar este endereço")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -70,14 +70,14 @@ func openBackend(cfg config.Config, noSeed bool) (web.Backend, func()) {
 	if cfg.PortalMode() {
 		manager, err := workspace.NewManager(cfg.DataDir, cfg.MaxWorkspaces)
 		if err != nil {
-			log.Fatalf("opening the workspaces: %v", err)
+			log.Fatalf("abrindo os workspaces: %v", err)
 		}
 		return web.Backend{Workspaces: manager}, manager.Close
 	}
 
 	st, err := store.Open(cfg.DatabasePath)
 	if err != nil {
-		log.Fatalf("opening the database: %v", err)
+		log.Fatalf("abrindo o banco de dados: %v", err)
 	}
 	if empty, err := st.Empty(); err == nil && empty && !noSeed {
 		if err := st.Seed(); err != nil {
@@ -89,9 +89,9 @@ func openBackend(cfg config.Config, noSeed bool) (web.Backend, func()) {
 }
 
 func serveSetup(cfg config.Config, problems []config.Problem) {
-	log.Printf("configuration incomplete, serving the setup screen on %s", cfg.Addr)
+	log.Printf("configuração incompleta, exibindo a tela de configuração em %s", cfg.Addr)
 	for _, p := range problems {
-		log.Printf("  missing or invalid: %s", p.Name)
+		log.Printf("  ausente ou inválida: %s", p.Name)
 	}
 	suggestion := ""
 	for _, p := range problems {

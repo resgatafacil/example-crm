@@ -33,10 +33,10 @@ func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 		record.Reason = err.Error()
 		if s.local != nil {
 			if _, _, storeErr := s.local.ReceiveEvent(record); storeErr != nil {
-				log.Printf("storing rejected webhook: %v", storeErr)
+				log.Printf("guardando webhook rejeitado: %v", storeErr)
 			}
 		} else {
-			log.Printf("webhook rejected: %v", err)
+			log.Printf("webhook rejeitado: %v", err)
 		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
@@ -60,7 +60,7 @@ func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 
 	st, routed := s.storeForEvent(event)
 	if !routed {
-		log.Printf("webhook %s %s ignored: no workspace for external_ref %q", event.Type, event.ID, event.Connection.ExternalRef)
+		log.Printf("webhook %s %s ignorado: nenhum workspace para o external_ref %q", event.Type, event.ID, event.Connection.ExternalRef)
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ignored"})
 		return
 	}
@@ -84,7 +84,7 @@ func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 
 	outcome, err := events.Apply(st, event)
 	if err != nil {
-		log.Printf("applying %s %s: %v", event.Type, event.ID, err)
+		log.Printf("aplicando %s %s: %v", event.Type, event.ID, err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "falha ao processar, tente de novo"})
 		return
 	}

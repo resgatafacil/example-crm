@@ -17,8 +17,8 @@ import (
 const touchEvery = time.Minute
 
 var (
-	ErrFull     = errors.New("workspace limit reached")
-	ErrNotFound = errors.New("workspace not found")
+	ErrFull     = errors.New("limite de workspaces atingido")
+	ErrNotFound = errors.New("workspace não encontrado")
 )
 
 type Info struct {
@@ -217,7 +217,7 @@ func (m *Manager) removeFiles(id string) error {
 	}
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		if err := os.Remove(m.path(id) + suffix); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("removing workspace %s: %w", id, err)
+			return fmt.Errorf("removendo o workspace %s: %w", id, err)
 		}
 	}
 	return nil

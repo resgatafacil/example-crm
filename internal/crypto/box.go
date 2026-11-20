@@ -16,7 +16,7 @@ type Box struct {
 
 func NewBox(key []byte) (*Box, error) {
 	if len(key) != 32 {
-		return nil, errors.New("encryption key must be 32 bytes")
+		return nil, errors.New("a chave de criptografia precisa ter 32 bytes")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -45,7 +45,7 @@ func (b *Box) Open(encoded string) (string, error) {
 	}
 	size := b.aead.NonceSize()
 	if len(raw) < size {
-		return "", errors.New("ciphertext too short")
+		return "", errors.New("texto cifrado curto demais")
 	}
 	plain, err := b.aead.Open(nil, raw[:size], raw[size:], nil)
 	if err != nil {

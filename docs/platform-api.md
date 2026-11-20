@@ -1,58 +1,60 @@
-# Resgata Fácil Platform API (integration guide for partners)
+# API da Plataforma Resgata Fácil (guia de integração para parceiros)
 
-Version `2026-11-01`. Base URL `https://app.resgatafacil.com/api/platform/v1`. JSON in, JSON out, times as Unix seconds.
+Versão `2026-11-01`. URL base `https://app.resgatafacil.com/api/platform/v1`. JSON na entrada e na saída, datas e horas em segundos Unix (exceto `scheduled_at` e `send_until` das campanhas, que usam ISO 8601).
 
-## Concepts
+## Conceitos
 
-- **Application**: your product (for example CRMSOLUT). Created in the developer portal, with its domain, OAuth redirect URIs, API keys and webhook endpoints.
-- **Connection**: one of your users linked to one Resgata Workspace. Every API call and every webhook carries the connection, so you route to the right user with `connection.id` or your own `external_ref`.
-- **Environment**: `live` (real WhatsApp numbers) or `sandbox` (fake services, nothing leaves our servers). The credential decides the environment: `rf_live_*` or `rf_test_*`.
-- **Credentials**
-  - Application key `rf_<env>_app_…`: acts for the whole application (list connections, issue tokens, create sandbox connections).
-  - Connection token `rf_<env>_conn_…`: acts for one user's connection. Send as `Authorization: Bearer <credential>`.
+- **Aplicativo (Application)**: o seu produto (por exemplo, o CRMSOLUT). É criado no portal do desenvolvedor, com o domínio, as URIs de redirecionamento do OAuth, as chaves de API e os endpoints de webhook.
+- **Conexão (Connection)**: um usuário seu ligado a um Workspace da Resgata. Toda chamada de API e todo webhook trazem a conexão, então você identifica o usuário certo por `connection.id` ou pelo seu próprio `external_ref`.
+- **Ambiente**: `live` (números de WhatsApp reais) ou `sandbox` (serviços simulados, nada sai dos nossos servidores). A credencial define o ambiente: `rf_live_*` ou `rf_test_*`.
+- **Credenciais**
+  - Chave do aplicativo `rf_<env>_app_…`: age em nome do aplicativo inteiro (listar conexões, emitir tokens, criar conexões de sandbox).
+  - Token de conexão `rf_<env>_conn_…`: age em nome da conexão de um usuário. Envie como `Authorization: Bearer <credencial>`.
 
-Keys and tokens are shown once and stored hashed. Rotate by creating a new one and revoking the old.
+Chaves e tokens são exibidos uma única vez e guardados com hash. Para trocar, crie uma nova credencial e revogue a antiga.
 
-## Connecting a user (OAuth, live)
+## Conectando um usuário (OAuth, live)
 
-Authorization code with PKCE (S256 is mandatory).
+Código de autorização com PKCE (S256 é obrigatório).
 
-1. Register the exact redirect URIs of your app in the portal (`https://…`, or `http://localhost…` for development).
-2. Send the user's browser to `https://app.resgatafacil.com/autorizar` with:
-   `client_id` (your application id `app_…`), `redirect_uri`, `state`, `code_challenge`, `code_challenge_method=S256`, `scope` (space separated), `external_ref` (your id for this user, optional but recommended).
-3. The user signs in (if needed), **connects their Meta (WhatsApp Business) account with Facebook** when the application requires it (see below), sees your name and the permissions, and approves. Only the Workspace root person or an admin can approve. We redirect to `redirect_uri?code=…&state=…`, or `?error=access_denied|external_ref_in_use&state=…`.
-4. From your server, `POST /oauth/token` with `grant_type=authorization_code`, `code`, `code_verifier`, `redirect_uri`, `client_id`. Response: `access_token` (the connection token), `scope`, `connection_id`, `external_ref`. Codes work once and expire in 10 minutes.
+1. Cadastre no portal as URIs de redirecionamento exatas do seu aplicativo (`https://…`, ou `http://localhost…` em desenvolvimento).
+2. Envie o navegador do usuário para `https://app.resgatafacil.com/autorizar` com:
+   `client_id` (o id do seu aplicativo, `app_…`), `redirect_uri`, `state`, `code_challenge`, `code_challenge_method=S256`, `scope` (separados por espaço) e `external_ref` (o seu id para esse usuário, opcional, mas recomendado).
+3. O usuário entra na conta (se precisar), **conecta a conta da Meta (WhatsApp Business) pelo Facebook** quando o aplicativo exigir (veja abaixo), vê o seu nome e as permissões e aprova. Só a pessoa root do Workspace ou um administrador pode aprovar. Redirecionamos para `redirect_uri?code=…&state=…`, ou para `?error=access_denied|external_ref_in_use&state=…`.
+4. No seu servidor, faça `POST /oauth/token` com `grant_type=authorization_code`, `code`, `code_verifier`, `redirect_uri` e `client_id`. Resposta: `access_token` (o token de conexão), `token_type` (`Bearer`), `scope`, `connection_id` e `external_ref`. Cada código funciona uma só vez e expira em 10 minutos.
 
-Scopes: `numbers:read`, `contacts:read`, `campaigns:read`, `campaigns:write`, `audiences:write`, `templates:read`, `templates:write`.
+Este endpoint segue o padrão OAuth e responde erros fora do formato da API, com status `400` e `{ "error": "<código>", "error_description": "…" }`. Os códigos são `unsupported_grant_type`, `invalid_grant` (código inválido, expirado ou já usado) e os de autorização `invalid_client`, `invalid_request` e `invalid_scope`. O limite é de 30 requisições por minuto.
 
-The user can disconnect you any time in Resgata (Integrações › Aplicativos conectados); you can disconnect with `DELETE /connection`. Both send a `connection.revoked` webhook.
+Permissões (scopes): `numbers:read`, `contacts:read`, `campaigns:read`, `campaigns:write`, `audiences:write`, `templates:read`, `templates:write`. Hoje nenhum endpoint exige `contacts:read`; ele está reservado.
 
-### The two sign-ins: Resgata and Meta
+O usuário pode desconectar o seu aplicativo quando quiser na Resgata (Integrações › Aplicativos conectados); você pode desconectar com `DELETE /connection`, que responde `{ "object": "connection", "status": "revoked" }`. Os dois caminhos enviam o webhook `connection.revoked`.
 
-Connecting a user takes two OAuth steps, both on Resgata screens, so you never handle Facebook credentials:
+### Os dois logins: Resgata e Meta
 
-1. **Resgata consent** (`/autorizar`, above). If the user has not linked a Meta official WhatsApp Business account yet, the consent screen shows a "Conectar a Meta (WhatsApp Business)" step first (Facebook login, choose the business) and enables **Autorizar** only after it succeeds.
-2. **Meta link.** It happens inside that screen, or later through a setup link you request with `POST /connection/meta-link`.
+Conectar um usuário envolve duas etapas de OAuth, ambas em telas da Resgata, então você nunca lida com credenciais do Facebook:
 
-Applications require the Meta step by default. You can switch it off per application in the developer portal (application overview, "Conexão com a Meta"). Authorizing without a linked Meta account when it is required is refused with `422 meta_required` (the consent screen already prevents it).
+1. **Consentimento na Resgata** (`/autorizar`, acima). Se o usuário ainda não vinculou uma conta oficial do WhatsApp Business da Meta, a tela de consentimento mostra antes a etapa "Conectar a Meta (WhatsApp Business)" (login do Facebook, escolha da empresa) e só habilita **Autorizar** depois que ela der certo.
+2. **Vínculo com a Meta.** Acontece dentro dessa tela, ou depois, por um link de configuração que você pede com `POST /connection/meta-link`.
 
-A connected WhatsApp number (QR code) is **not** needed. Linking the Meta account does take one number slot of the user's Resgata plan, like linking it in the Resgata app. When the plan has no free slot the link is cancelled and the setup shows `meta_linked` as incomplete; `POST /audiences` and `POST /campaigns` answer `409 no_slot_available` for a connection whose Meta link has no number.
+Por padrão, os aplicativos exigem a etapa da Meta. Você pode desligá-la por aplicativo no portal do desenvolvedor (visão geral do aplicativo, "Conexão com a Meta"). Autorizar sem uma conta da Meta vinculada quando ela é exigida é recusado com `422 meta_required` (a tela de consentimento já impede isso).
 
-#### Setup link for the Meta step
+Um número de WhatsApp conectado (QR code) **não** é necessário. Vincular a conta da Meta ocupa uma vaga de número do plano Resgata do usuário, como vincular no aplicativo da Resgata. Quando o plano não tem vaga livre, o vínculo é cancelado e a configuração mostra `meta_linked` como incompleto; `POST /audiences` e `POST /campaigns` respondem `409 no_slot_available` para uma conexão cujo vínculo com a Meta não tem número.
 
-`POST /connection/meta-link` (connection token) with `{ "return_url": "https://app.seudominio.com/integracoes/resgata/meta-return" }`. Response:
+#### Link de configuração da etapa da Meta
+
+`POST /connection/meta-link` (token de conexão) com `{ "return_url": "https://app.seudominio.com/integracoes/resgata/meta-return" }`. Resposta:
 
 ```json
 { "data": { "url": "https://app.resgatafacil.com/vincular/…", "expires_at": 1767226800 } }
 ```
 
-Open `url` in the user's browser (no Resgata login needed). It is single use and expires in 30 minutes. When the user finishes, we send the browser to your `return_url` with `?status=linked|failed&connection=conn_…` added (existing query parameters are kept). After `status=linked`, `GET /connection/setup` shows `meta_linked` as `complete` without anything else from you.
+Abra `url` no navegador do usuário (não precisa de login na Resgata). O link é de uso único e expira em 30 minutos. Quando o usuário termina, enviamos o navegador para o seu `return_url` com `?status=linked|failed&connection=conn_…` acrescentado (os parâmetros de query que já existiam são mantidos). Depois de `status=linked`, `GET /connection/setup` mostra `meta_linked` como `complete` sem que você precise fazer mais nada.
 
-`return_url` must have the same origin (scheme, host and port) as one of the redirect URIs registered on the application (`https`, or `http://localhost…` for development); anything else answers `422 invalid_request_error`. Do not rely on the static `action_url` of the `meta_linked` step: call this endpoint, or pass `?return_url=…` to `GET /connection/setup` and the `action_url` of an incomplete `meta_linked` step is a fresh setup link.
+`return_url` precisa ter a mesma origem (esquema, host e porta) de uma das URIs de redirecionamento cadastradas no aplicativo (`https`, ou `http://localhost…` em desenvolvimento); qualquer outra coisa responde `422 invalid_request_error`. Não dependa do `action_url` estático da etapa `meta_linked`: chame este endpoint, ou passe `?return_url=…` em `GET /connection/setup`, e o `action_url` de uma etapa `meta_linked` incompleta será um link de configuração novo.
 
-## What is still missing for the user
+## O que ainda falta para o usuário
 
-`GET /connection/setup` (connection token) tells you whether the user's Meta official WhatsApp Business account is ready to send, so you can draw the checklist in your own UI. A connected WhatsApp number (QR code) is **not** required: the platform only needs the Meta official account linked and healthy.
+`GET /connection/setup` (token de conexão) informa se a conta oficial do WhatsApp Business da Meta do usuário está pronta para enviar, para você desenhar o checklist na sua própria interface. Um número de WhatsApp conectado (QR code) **não** é obrigatório: a plataforma só precisa que a conta oficial da Meta esteja vinculada e saudável.
 
 ```json
 { "object": "connection_setup", "connection": "conn_…", "ready": false,
@@ -64,68 +66,79 @@ Open `url` in the user's browser (no Resgata login needed). It is single use and
       "detail": "A Meta não nos informa a forma de pagamento. Confira no Billing Hub da Meta…", "action_url": "https://business.facebook.com/…" } ] }
 ```
 
-Each step has a `status`:
+Cada etapa tem um `status`:
 
-| Status | Meaning |
+| Status | Significado |
 |---|---|
-| `complete` | Done |
-| `incomplete` | The user still has to do something; `action_url` opens the right place |
-| `blocked` | Something is wrong on the Meta side (rejected, restricted, payment problem, number left the Cloud API); `detail` says what |
-| `unknown` | We cannot tell yet (Meta has not reported it) |
+| `complete` | Concluída |
+| `incomplete` | O usuário ainda precisa fazer algo; `action_url` abre o lugar certo |
+| `blocked` | Há algo errado do lado da Meta (rejeição, restrição, problema de pagamento, número que saiu da Cloud API); `detail` explica o quê |
+| `unknown` | Ainda não sabemos dizer (a Meta não informou) |
 
-`ready` is `true` when every `required` step is `complete` and no step at all is `blocked`. `detail` is a short human-readable explanation in Portuguese and may be `null`.
+`ready` é `true` quando toda etapa `required` está `complete` e nenhuma etapa está `blocked`. `detail` é uma explicação curta, legível por pessoas, em português, e pode ser `null`.
 
-| Step id | What it checks | Required |
+| Id da etapa | O que verifica | Obrigatória |
 |---|---|---|
-| `workspace` | The Resgata account exists | yes |
-| `meta_linked` | An active Meta official link with a WhatsApp Business account and phone number, not asking to be reconnected | yes |
-| `business_verified` | The business is verified in Meta Business Manager | no |
-| `account_review` | The WhatsApp Business account passed Meta's review | yes |
-| `display_name` | The display name is approved | yes |
-| `phone_status` | The phone number is connected to the Cloud API | yes |
-| `payment_method` | Meta is billing deliveries normally (`complete`), reports a payment problem (`blocked`) or we have no signal yet (`unknown`) | no |
-| `messaging_restriction` | No active restriction on sending (for example 130497 or 131031) | yes |
-| `webhook_subscribed` | Meta webhooks are subscribed (Resgata repairs this automatically) | no |
-| `business_profile` | Description, business category and at least one contact (email, website or address) are filled in | no |
-| `template_available` | At least one approved message template exists | no |
-| `messaging_tier` | Informational: the daily messaging limit (`detail`) | no |
+| `workspace` | A conta Resgata existe | sim |
+| `meta_linked` | Há um vínculo ativo com a Meta oficial, com conta do WhatsApp Business e número, sem pedido de reconexão | sim |
+| `business_verified` | A empresa está verificada no Gerenciador de Negócios da Meta | não |
+| `account_review` | A conta do WhatsApp Business passou pela análise da Meta | sim |
+| `display_name` | O nome de exibição está aprovado | sim |
+| `phone_status` | O número está conectado à Cloud API | sim |
+| `payment_method` | A Meta está cobrando os envios normalmente (`complete`), informa um problema de pagamento (`blocked`) ou ainda não temos sinal (`unknown`) | não |
+| `messaging_restriction` | Não há restrição ativa de envio (por exemplo 130497 ou 131031) | sim |
+| `webhook_subscribed` | Os webhooks da Meta estão inscritos (a Resgata corrige isso automaticamente) | não |
+| `business_profile` | Descrição, categoria da empresa e pelo menos um contato (e-mail, site ou endereço) estão preenchidos | não |
+| `template_available` | Existe pelo menos um modelo de mensagem aprovado | não |
+| `messaging_tier` | Informativa: o limite diário de mensagens (`detail`) | não |
 
-Meta does not expose a positive "has a payment method" signal, so `payment_method` becomes `complete` only after Meta has billed a delivery for the number (or when Resgata pays the account). Until then it is `unknown` and does not stop `ready`; a reported payment problem always does.
+A Meta não expõe um sinal positivo de "tem forma de pagamento", então `payment_method` só vira `complete` depois que a Meta cobrou um envio do número (ou quando a Resgata paga a conta). Até lá fica `unknown` e não impede o `ready`; um problema de pagamento informado sempre impede.
 
-The values are read from data Resgata already keeps in sync with Meta (health checks and Meta webhooks), so the endpoint is fast and makes no calls to Meta. After the user fixes something in Meta, it can take a few minutes to show up here.
+Os valores vêm de dados que a Resgata já mantém sincronizados com a Meta (verificações de saúde e webhooks da Meta), então o endpoint é rápido e não faz chamadas à Meta. Depois que o usuário corrige algo na Meta, pode levar alguns minutos para aparecer aqui.
 
-`action_url` opens the right place in Resgata (or Meta Business Manager) for the user to finish that step, including the Meta official login.
+`action_url` abre o lugar certo na Resgata (ou no Gerenciador de Negócios da Meta) para o usuário concluir a etapa, incluindo o login da Meta oficial.
 
 ## Endpoints
 
-| Method and path | Credential | Notes |
+| Método e caminho | Credencial | Observações |
 |---|---|---|
-| `GET /ping` | any | Who you are authenticated as |
-| `GET /connections`, `GET /connections/{id}` | application key | Connections of your application in the key's environment |
-| `POST /connections` | sandbox application key | `{ "external_ref": "…" }` creates a sandbox connection. In live, connections come from OAuth |
-| `POST /connections/{id}/tokens` | application key | Issues a connection token (secret shown once). `DELETE /connections/{id}/tokens/{token}` revokes |
-| `GET /connection` | connection token | The current connection |
-| `GET /connection/setup` | connection token | Setup steps (above). Optional `?return_url=…` turns the `meta_linked` action into a setup link |
-| `POST /connection/meta-link` | connection token | `{ "return_url" }` → `{ data: { url, expires_at } }`, the Meta setup link (above) |
-| `DELETE /connection` | connection token | Disconnect |
-| `GET /numbers` | token with `numbers:read` | Numbers of the workspace, whether they are connected (`connected`) and their `status` |
-| `GET /templates`, `GET /templates/{id}` | token with `templates:read` | The message templates of the linked WhatsApp Business account, see Templates |
-| `POST /templates`, `POST /templates/media`, `POST /templates/{id}/sync`, `DELETE /templates/{id}` | token with `templates:write` | Create (submits to Meta for approval), upload header media, refresh the status from Meta, delete |
-| `POST /audiences` | token with `audiences:write` | Creates an audience (the people a campaign will message) from a JSON list of contacts, see Audiences |
-| `GET /audiences/{id}` | token with `campaigns:read` | One audience with how many contacts were accepted |
-| `POST /campaigns` | token with `campaigns:write` | Starts a campaign: an approved template sent to an audience, see Campaigns |
-| `GET /campaigns`, `GET /campaigns/{id}` | token with `campaigns:read` | Campaigns created by this connection with their progress |
-| `POST /campaigns/{id}/pause`, `POST /campaigns/{id}/resume` | token with `campaigns:write` | Pause and resume a campaign |
-| `GET /oauth/sandbox/authorize` | none | Sandbox consent redirect, see Sandbox |
-| `POST /sandbox/...` | sandbox credential | Sandbox helpers (numbers, events, inbound messages, opt-outs, reset), see Sandbox |
+| `GET /ping` | qualquer | Informa com quem você está autenticado: `application`, `environment`, `credential` (`application_key` ou `connection_token`), `connection` e `api_version` |
+| `GET /connections`, `GET /connections/{id}` | chave do aplicativo | Conexões do seu aplicativo no ambiente da chave. A lista tem 50 por página (`?page=`) |
+| `POST /connections` | chave de aplicativo do sandbox | `{ "external_ref": "…" }` cria uma conexão de sandbox (`409 external_ref_in_use` se já existir). No live responde `403 consent_required`: as conexões vêm do OAuth |
+| `POST /connections/{id}/tokens` | chave do aplicativo | Emite um token de conexão (o segredo aparece uma vez, em `secret`; `name` opcional). `DELETE /connections/{id}/tokens/{token}` revoga, com o id numérico do token |
+| `GET /connection` | token de conexão | A conexão atual |
+| `GET /connection/setup` | token de conexão | Etapas de configuração (acima). O parâmetro opcional `?return_url=…` transforma a ação de `meta_linked` em um link de configuração |
+| `POST /connection/meta-link` | token de conexão | `{ "return_url" }` → `{ data: { url, expires_at } }`, o link de configuração da Meta (acima) |
+| `DELETE /connection` | token de conexão | Desconecta |
+| `GET /numbers` | token com `numbers:read` | Números do workspace, se estão conectados (`connected`) e o `status` |
+| `GET /templates`, `GET /templates/{id}` | token com `templates:read` | Os modelos de mensagem da conta do WhatsApp Business vinculada, veja Modelos |
+| `POST /templates`, `POST /templates/media`, `POST /templates/{id}/sync`, `DELETE /templates/{id}` | token com `templates:write` | Criar (envia à Meta para aprovação), enviar mídia de cabeçalho, atualizar o status a partir da Meta e excluir |
+| `POST /audiences` | token com `audiences:write` | Cria um público (as pessoas que uma campanha vai receber) a partir de uma lista JSON de contatos, veja Públicos |
+| `GET /audiences/{id}` | token com `campaigns:read` | Um público com quantos contatos foram aceitos |
+| `POST /campaigns` | token com `campaigns:write` | Inicia uma campanha: um modelo aprovado enviado a um público, veja Campanhas |
+| `GET /campaigns`, `GET /campaigns/{id}` | token com `campaigns:read` | Campanhas criadas por esta conexão, com o andamento |
+| `POST /campaigns/{id}/pause`, `POST /campaigns/{id}/resume` | token com `campaigns:write` | Pausa e retoma uma campanha |
+| `POST /oauth/token` | nenhuma | Troca o código de autorização pelo token de conexão (acima) |
+| `GET /oauth/sandbox/authorize` | nenhuma | Redirecionamento de consentimento do sandbox, veja Sandbox |
+| `POST /sandbox/...` | credencial do sandbox | Ajudantes do sandbox (números, eventos, mensagens recebidas, opt-outs, reset), veja Sandbox |
 
-Errors use `{ "error": { "type", "message" } }` with `authentication_error` (401), `permission_error` (403), `not_found` (404), `invalid_request_error` (422), `rate_limit_error` (429). Sandbox routes called with a live credential answer `403 sandbox_only`; sandbox caps answer `422 sandbox_limit_reached`. Limit: 120 requests per minute per credential; respect `Retry-After`.
+Os erros usam `{ "error": { "type", "message" } }`, às vezes com campos extras (`fields`, `allowed`, `scope`). O `type` é a classe geral do erro ou um código específico:
 
-## Templates
+| Status | `type` |
+|---|---|
+| 401 | `authentication_error` (credencial ausente, inválida ou revogada) |
+| 403 | `permission_error` (rota exige outro tipo de credencial, ou o token não tem a permissão; o campo `scope` diz qual) |
+| 404 | `not_found` |
+| 422 | `invalid_request_error` (com `fields` quando for erro de campo) |
+| 429 | `rate_limit_error` |
 
-Templates are the messages a campaign sends. Create them through the API and they go to Meta for approval, exactly like templates created in the Resgata app. They live in the WhatsApp Business account the user linked to Meta, so the connection must have `meta_linked` complete in `GET /connection/setup`; otherwise `POST /templates` answers `409 meta_not_ready`.
+Os demais códigos específicos de cada endpoint (`meta_not_ready`, `no_slot_available`, `plan_not_allowed`…) estão descritos nas seções abaixo. Rotas do sandbox chamadas com credencial live respondem `403 sandbox_only`; os limites do sandbox respondem `422 sandbox_limit_reached`. Limite: 120 requisições por minuto por credencial; respeite o `Retry-After`.
 
-Ids look like `tpl_…`. Statuses: `pending`, `approved`, `rejected`, `paused`, `disabled`, `in_appeal`, `limit_exceeded`, `reinstated`. Only `approved` and `reinstated` templates can be used by campaigns.
+## Modelos
+
+Modelos são as mensagens que uma campanha envia. Crie-os pela API e eles vão para a Meta para aprovação, exatamente como os modelos criados no aplicativo da Resgata. Eles ficam na conta do WhatsApp Business que o usuário vinculou à Meta, então a conexão precisa ter `meta_linked` completo em `GET /connection/setup`; caso contrário `POST /templates` responde `409 meta_not_ready`.
+
+Os ids têm o formato `tpl_…`. Status: `pending`, `approved`, `rejected`, `paused`, `disabled`, `in_appeal`, `limit_exceeded`, `reinstated`. Só modelos `approved` e `reinstated` podem ser usados em campanhas.
 
 ```json
 { "id": "tpl_123", "object": "template", "name": "promocao_da_semana", "category": "MARKETING",
@@ -134,52 +147,52 @@ Ids look like `tpl_…`. Statuses: `pending`, `approved`, `rejected`, `paused`, 
   "variables": { "count": 1, "placeholders": [1] }, "created_at": 1767225600, "updated_at": 1767225600 }
 ```
 
-### Creating a template
+### Criando um modelo
 
-`POST /templates` with a JSON body. `name` is free text: it is normalized to the lowercase `a-z0-9_` form Meta requires (`"Promoção da Semana"` becomes `promocao_da_semana`). `category` is `MARKETING`, `UTILITY` or `AUTHENTICATION`.
+`POST /templates` com corpo JSON. `name` é texto livre: ele é normalizado para a forma minúscula `a-z0-9_` que a Meta exige (`"Promoção da Semana"` vira `promocao_da_semana`). `category` é `MARKETING`, `UTILITY` ou `AUTHENTICATION`.
 
-| Field | Notes |
+| Campo | Observações |
 |---|---|
-| `body.text` | Required for structured templates, up to 1024 characters. Use `{{1}}`, `{{2}}`… for variables, with one entry in `body.examples` per variable |
-| `header` | `{ "type": "text", "text": "…" }` (up to 60 characters) or `{ "type": "image" \| "video" \| "document", "media_id": "…" }`. `media_url` (a public link) works instead of `media_id` |
-| `footer` | Text, up to 60 characters |
-| `buttons` | Up to 3: `QUICK_REPLY`, `URL` (`url`, https) or `PHONE_NUMBER` (`phone_number`). Button text up to 25 characters |
-| `carousel.cards` | 2 to 10 cards of `{ "media_type": "image" \| "video", "media_id", "body"?, "buttons": [ … ] }`. With a carousel the main text carries no header, footer or buttons |
-| `components` | Advanced: the raw Meta `components` array, together with `name`, `category` and `language`. Use it for `AUTHENTICATION` templates (OTP buttons) or anything the fields above do not cover. It replaces the structured fields |
+| `body.text` | Obrigatório nos modelos estruturados, até 1024 caracteres. Use `{{1}}`, `{{2}}`… para variáveis, com uma entrada em `body.examples` por variável |
+| `header` | `{ "type": "text", "text": "…" }` (até 60 caracteres) ou `{ "type": "image" \| "video" \| "document", "media_id": "…" }`. `media_url` (um link público) funciona no lugar de `media_id` |
+| `footer` | Texto, até 60 caracteres |
+| `buttons` | Até 3: `QUICK_REPLY`, `URL` (`url`, https) ou `PHONE_NUMBER` (`phone_number`). Texto do botão até 25 caracteres |
+| `carousel.cards` | De 2 a 10 cartões `{ "media_type": "image" \| "video", "media_id", "body"?, "buttons": [ … ] }`. Com carrossel, o texto principal não leva cabeçalho, rodapé nem botões |
+| `components` | Avançado: o array `components` cru da Meta, junto com `name`, `category` e `language`. Use para modelos `AUTHENTICATION` (botões de OTP) ou qualquer coisa que os campos acima não cubram. Ele substitui os campos estruturados |
 
 ```sh
 curl -X POST $BASE/templates -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
   "name": "promocao_da_semana", "category": "MARKETING", "language": "pt_BR",
-  "header": { "type": "image", "media_id": "<from POST /templates/media>" },
+  "header": { "type": "image", "media_id": "<de POST /templates/media>" },
   "body": { "text": "Oi {{1}}, confira nossa promoção.", "examples": ["Maria"] },
   "footer": "Responda PARAR para sair",
   "buttons": [ { "type": "URL", "text": "Ver oferta", "url": "https://seusite.com/oferta" } ]
 }'
 ```
 
-Responses: `201` with the template (`status: pending`), or `200` with `"duplicated": true` when an identical template already exists (the existing one is returned and nothing is sent to Meta). Invalid input is `422` with the field names of this API:
+Respostas: `201` com o modelo (`status: pending`), ou `200` com `"duplicated": true` quando já existe um modelo idêntico (o existente é devolvido e nada é enviado à Meta). Em casos raros a Meta aceita o modelo, mas ainda não temos o registro local: a resposta é `202` com `{ "data": { "object": "template", "id": null, "status": "pending" } }`; consulte `GET /templates` depois. Entrada inválida é `422` com os nomes de campo desta API:
 
 ```json
 { "error": { "type": "invalid_request_error", "message": "O modelo tem campos inválidos.",
   "fields": { "body.text": ["O texto da mensagem é obrigatório."], "buttons": ["Use no máximo 3 botões."] } } }
 ```
 
-Other errors: `409 template_in_progress` (the same template is being created right now, retry in a few seconds), `409 meta_not_ready`, `422 invalid_request_error` when Meta refuses the template (the message says why) and `502 meta_unavailable`.
+Outros erros: `422 invalid_request_error` quando o corpo vem vazio (`Envie o modelo em JSON.`), `409 template_in_progress` (o mesmo modelo está sendo criado agora, tente de novo em alguns segundos), `409 meta_not_ready`, `422 invalid_request_error` quando a Meta recusa o modelo (a mensagem diz o motivo) e `502 meta_unavailable`.
 
-### Header media
+### Mídia de cabeçalho
 
-`POST /templates/media` (multipart, field `file`: jpg, png, mp4 or pdf, up to 25 MB) uploads the file to Meta and returns `{ "data": { "media_id": "…" } }`. Pass that `media_id` in `header.media_id` or `carousel.cards[].media_id` when creating the template.
+`POST /templates/media` (multipart, campo `file`: jpg, png, mp4 ou pdf, até 25 MB) envia o arquivo à Meta e devolve `{ "data": { "object": "template_media", "media_id": "…", "mime_type": "…" } }`. Passe esse `media_id` em `header.media_id` ou `carousel.cards[].media_id` ao criar o modelo. Erros: `422 invalid_request_error` (arquivo ausente, tipo ou tamanho inválido, ou recusado pela Meta), `409 meta_not_ready` e `502 meta_unavailable`.
 
-### Reading, refreshing and deleting
+### Consultando, atualizando e excluindo
 
-- `GET /templates` lists templates, newest first. Filters: `status`, `category`, `language`, `name` (contains). `limit` is 1 to 100 (default 25); follow `meta.next_cursor` with `?cursor=…` for the next page.
-- `GET /templates/{id}` returns one template.
-- `POST /templates/{id}/sync` asks Meta for the current status and returns the refreshed template (`502 meta_unavailable` if Meta does not answer).
-- `DELETE /templates/{id}` deletes the template on Meta and in Resgata. When Meta does not let the account delete it, the template is archived instead and the response says `"archived": true`.
+- `GET /templates` lista os modelos, do mais novo para o mais antigo. Filtros: `status`, `category` (`MARKETING`, `UTILITY` ou `AUTHENTICATION`), `language`, `name` (contém). `limit` vai de 1 a 100 (padrão 25); siga `meta.next_cursor` com `?cursor=…` para a próxima página.
+- `GET /templates/{id}` devolve um modelo.
+- `POST /templates/{id}/sync` pergunta à Meta o status atual e devolve o modelo atualizado (`502 meta_unavailable` se a Meta não responder).
+- `DELETE /templates/{id}` exclui o modelo na Meta e na Resgata e responde `{ "id", "object": "template", "deleted": true }`. Quando a Meta não permite que a conta exclua o modelo, ele é arquivado e a resposta traz `"deleted": false, "archived": true`. Se a exclusão for recusada, a resposta é `422 invalid_request_error`.
 
-### Events
+### Eventos
 
-`template.approved`, `template.rejected` and `template.status_changed` fire when a template changes status. `template.approved` covers `approved` and `reinstated`, `template.rejected` covers `rejected`, and `template.status_changed` covers every other change (`paused`, `disabled`, `in_appeal`, `limit_exceeded`, back to `pending`…).
+`template.approved`, `template.rejected` e `template.status_changed` disparam quando um modelo muda de status. `template.approved` cobre `approved` e `reinstated`, `template.rejected` cobre `rejected`, e `template.status_changed` cobre qualquer outra mudança (`paused`, `disabled`, `in_appeal`, `limit_exceeded`, volta para `pending`…).
 
 ```json
 { "type": "template.rejected", "data": {
@@ -188,13 +201,13 @@ Other errors: `409 template_in_progress` (the same template is being created rig
   "previous_status": "pending" } }
 ```
 
-Templates the customer creates in the Resgata app also fire these events for connected applications, because they live in the same account. Meta decides the status, so the event can arrive minutes to days after creation.
+Modelos que o cliente cria no aplicativo da Resgata também disparam esses eventos para os aplicativos conectados, porque ficam na mesma conta. Quem decide o status é a Meta, então o evento pode chegar de minutos a dias depois da criação.
 
-## Audiences
+## Públicos
 
-An audience is the list of people a campaign sends to. They are your own leads: send them in the request, nothing is read from the customer's Resgata contacts.
+Um público é a lista de pessoas para quem uma campanha envia. São os seus próprios leads: envie-os na requisição, nada é lido dos contatos da Resgata do cliente.
 
-`POST /audiences` (token with `audiences:write`):
+`POST /audiences` (token com `audiences:write`):
 
 ```json
 { "name": "Leads de novembro",
@@ -203,9 +216,9 @@ An audience is the list of people a campaign sends to. They are your own leads: 
     { "phone": "11988880002", "name": "João Pereira" } ] }
 ```
 
-`phone` is required (any common Brazilian format, with or without country code). `name` is optional. `variables` fill `{{n}}` placeholders of the template: a list (position 1 is `variable_1`) or an object `{ "2": "Sexta" }`, up to 15 values of 250 characters. One request takes up to 5,000 contacts (200 in the sandbox).
+`phone` é obrigatório (qualquer formato brasileiro comum, com ou sem código do país). `name` é opcional. `variables` preenchem os `{{n}}` do modelo: uma lista (a posição 1 é `variable_1`) ou um objeto `{ "2": "Sexta" }`, até 15 valores de 250 caracteres. Uma requisição aceita até 5.000 contatos (200 no sandbox). O `name` do público tem até 150 caracteres.
 
-Response `201`:
+Resposta `201`:
 
 ```json
 { "data": { "id": "aud_…", "object": "audience", "name": "Leads de novembro",
@@ -213,15 +226,17 @@ Response `201`:
   "rejections": {}, "rejected_samples": [], "created_at": 1767225600 } }
 ```
 
-Contacts we do not accept are counted in `rejections` by reason (`invalid`, `duplicated`, `quarantined`, `internacional_nao_habilitado`, `variable_too_long`, `incomplete`) and listed, up to 100, in `rejected_samples` with their position in your list. When no contact is valid the answer is `422 no_valid_contacts`. Shape errors are `422 invalid_request_error` with `fields`. The customer's plan decides whether imported audiences are allowed (`403 plan_not_allowed` on the free plan).
+Os contatos que não aceitamos são contados em `rejections` por motivo (`invalid`, `duplicated`, `quarantined`, `internacional_nao_habilitado`, `variable_too_long`, `incomplete`) e listados, até 100, em `rejected_samples` com a posição na sua lista. Quando nenhum contato é válido a resposta é `422 no_valid_contacts`. Erros de formato são `422 invalid_request_error` com `fields`. O plano do cliente decide se públicos importados são permitidos (`403 plan_not_allowed` no plano gratuito).
 
-Contacts that opted out are never messaged: the same block lists the app uses apply to API campaigns.
+Contatos que pediram para sair (opt-out) nunca recebem mensagens: as mesmas listas de bloqueio usadas pelo aplicativo valem para as campanhas da API.
 
-## Campaigns
+`GET /audiences/{id}` (token com `campaigns:read`) devolve o mesmo formato do `data` acima, ou `404 not_found`.
 
-Campaigns are the only way to send through the API: there is no endpoint to send one message to one person. A campaign is an approved template plus an audience, and it follows the same rules as a campaign created in the Resgata app by the user who connected you: their plan, their schedule rules, their spend limit, the Meta limits of their WhatsApp Business account and the opt-out lists. WhatsApp costs are billed by Meta to the payment method of the customer's own account.
+## Campanhas
 
-`POST /campaigns` (token with `campaigns:write`):
+Campanhas são a única forma de enviar pela API: não existe endpoint para enviar uma mensagem a uma pessoa. Uma campanha é um modelo aprovado mais um público, e segue as mesmas regras de uma campanha criada no aplicativo da Resgata pelo usuário que conectou você: o plano, as regras de horário, o limite de gastos, os limites da Meta para a conta do WhatsApp Business dele e as listas de opt-out. Os custos do WhatsApp são cobrados pela Meta na forma de pagamento da conta do próprio cliente.
+
+`POST /campaigns` (token com `campaigns:write`):
 
 ```json
 { "name": "Black Friday", "template_id": "tpl_123", "audience_id": "aud_…",
@@ -229,17 +244,17 @@ Campaigns are the only way to send through the API: there is no endpoint to send
   "schedule_at": "2026-11-27T09:00:00-03:00" }
 ```
 
-| Field | |
+| Campo | |
 |---|---|
-| `template_id` | Required. An `approved` or `reinstated` template of the linked account |
-| `audience_id` | Required |
-| `variables` | One value per `{{n}}` of the template body. `@nome` is the contact's name, `@variavel_N` is the contact's `variables[N-1]`, anything else is sent as it is for everyone |
-| `name` | Optional |
-| `schedule_at` | Optional ISO 8601 date in the future. Needs a plan that allows scheduling (`403 schedule_not_allowed`) |
-| `send_until` | Optional. After this moment the campaign stops sending |
-| `daily_send_limit` or `contacts_limit` | Optional integers. Send that many per day, or pause after that many contacts (not both) |
+| `template_id` | Obrigatório. Um modelo `approved` ou `reinstated` da conta vinculada |
+| `audience_id` | Obrigatório |
+| `variables` | Um valor para cada `{{n}}` do corpo do modelo. `@nome` é o nome do contato, `@variavel_N` é o `variables[N-1]` do contato, e qualquer outra coisa é enviada como está para todos |
+| `name` | Opcional |
+| `schedule_at` | Opcional. Data ISO 8601 no futuro. Exige um plano que permita agendamento (`403 schedule_not_allowed`) |
+| `send_until` | Opcional. Depois desse momento a campanha para de enviar |
+| `daily_send_limit` ou `contacts_limit` | Opcionais, números inteiros. Enviar essa quantidade por dia, ou pausar depois dessa quantidade de contatos (não os dois) |
 
-Responses: `201` with the campaign, or `200` with `"duplicated": true` when an identical campaign was created in the last 10 minutes (the existing one is returned and nothing new is sent). Errors: `409 meta_not_ready`, `409 no_slot_available`, `409 template_not_approved`, `409 waba_restricted` (Meta restricted the customer's account), `422 invalid_request_error` (missing variables or contact data, with a message), `422 spend_limit_reached`, `422 empty_audience`, `403 plan_not_allowed`, `403 schedule_not_allowed`, `404 not_found` (template or audience) and `502 meta_unavailable`.
+Respostas: `201` com a campanha, ou `200` com `"duplicated": true` quando uma campanha idêntica foi criada nos últimos 10 minutos (a existente é devolvida e nada novo é enviado). Erros: `409 meta_not_ready`, `409 no_slot_available`, `409 template_not_approved`, `409 waba_restricted` (a Meta restringiu a conta do cliente), `422 template_blocked` (modelo suspenso pela equipe Resgata Fácil), `422 invalid_request_error` (variáveis ou dados de contato faltando, com mensagem), `422 spend_limit_reached`, `422 empty_audience`, `403 plan_not_allowed`, `403 schedule_not_allowed`, `404 not_found` (modelo ou público) e `502 meta_unavailable`.
 
 ```json
 { "data": { "id": "cmp_123", "object": "campaign", "name": "Black Friday",
@@ -250,19 +265,19 @@ Responses: `201` with the campaign, or `200` with `"duplicated": true` when an i
   "created_at": 1767225600, "finished_at": null } }
 ```
 
-Statuses: `scheduled`, `pending` (waiting for Meta or for the template), `running`, `paused`, `finished`, `failed` (nothing could be sent) and `canceled`. `pause_reason` is `MANUAL_USER` after your pause, or the reason Resgata paused it (daily limit reached, Meta quality, spend limit…).
+Status: `scheduled`, `pending` (aguardando a Meta ou o modelo), `running`, `paused`, `finished`, `failed` (nada pôde ser enviado) e `canceled`. `pause_reason` é `MANUAL_USER` depois de uma pausa sua, ou o motivo pelo qual a Resgata pausou (limite diário atingido, qualidade na Meta, limite de gastos…). `scheduled_at` e `send_until` voltam em ISO 8601.
 
-- `GET /campaigns` lists the campaigns this connection created, newest first (`name` filter, `limit` 1 to 100, `meta.next_cursor`). Campaigns the customer made in the Resgata app are not listed.
-- `GET /campaigns/{id}` returns one with its progress.
-- `POST /campaigns/{id}/pause` and `/resume`. Resume answers `409 campaign_not_paused`, `422 daily_limit_reached` (the next batch leaves by itself), `422 campaign_limit_reached`, `422 campaign_expired`, `409 waba_restricted` or `422 spend_limit_reached` when it cannot continue.
+- `GET /campaigns` lista as campanhas que esta conexão criou, da mais nova para a mais antiga (filtro `name`, `limit` de 1 a 100, `meta.next_cursor`). As campanhas que o cliente fez no aplicativo da Resgata não aparecem.
+- `GET /campaigns/{id}` devolve uma campanha com o andamento.
+- `POST /campaigns/{id}/pause` e `/resume`. Pausar uma campanha já encerrada responde `409 campaign_not_active`. Retomar responde `409 campaign_not_paused`, `422 daily_limit_reached` (o próximo lote sai sozinho), `422 campaign_limit_reached`, `422 campaign_expired`, `422 empty_audience`, `409 channel_not_ready`, `409 waba_restricted` ou `422 spend_limit_reached` quando não consegue continuar.
 
-### Campaign events
+### Eventos de campanha
 
-`campaign.started` (the first messages were queued), `campaign.paused` (by you, by the customer or by Resgata), `campaign.finished` and `campaign.failed` carry `data.campaign` with the same shape as above. `message.sent|delivered|read|failed`, `message.received` and `contact.opted_out` of a campaign you created go only to your connection, with `campaign_id` set to the `cmp_…` id.
+`campaign.started` (as primeiras mensagens entraram na fila), `campaign.paused` (por você, pelo cliente ou pela Resgata), `campaign.finished` e `campaign.failed` trazem `data.campaign` com o mesmo formato acima. `message.sent|delivered|read|failed`, `message.received` e `contact.opted_out` de uma campanha que você criou vão só para a sua conexão, com `campaign_id` preenchido com o id `cmp_…`.
 
 ## Webhooks
 
-Configure endpoints in the developer portal: URL, the events you want, and the signing secret (`whsec_…`, generated or your own). Production endpoints must be `https` and resolve to a public address.
+Configure os endpoints no portal do desenvolvedor: URL, os eventos desejados e o segredo de assinatura (`whsec_…`, gerado ou o seu próprio). Endpoints de produção precisam ser `https` e resolver para um endereço público.
 
 Envelope:
 
@@ -273,9 +288,9 @@ Envelope:
   "data": { … } }
 ```
 
-Headers: `X-Resgata-Signature: t=<unix>,v1=<hex>`, `X-Resgata-Event-Id`, `X-Resgata-Delivery-Id`, `X-Resgata-Delivery-Attempt`.
+Cabeçalhos: `X-Resgata-Signature: t=<unix>,v1=<hex>`, `X-Resgata-Event-Id`, `X-Resgata-Delivery-Id`, `X-Resgata-Delivery-Attempt`.
 
-Verify: compute `HMAC_SHA256(secret, t + "." + rawBody)` as hex, compare in constant time with every `v1` in the header, and reject when `t` is more than 300 seconds old.
+Verificação: calcule `HMAC_SHA256(secret, t + "." + rawBody)` em hexadecimal, compare em tempo constante com cada `v1` do cabeçalho e rejeite quando `t` tiver mais de 300 segundos.
 
 ```js
 const crypto = require('crypto');
@@ -287,111 +302,111 @@ function verify(rawBody, header, secret) {
 }
 ```
 
-Delivery is **at least once** and not ordered. Deduplicate on `X-Resgata-Event-Id`. Answer `2xx` within 10 seconds. Failures retry after 15s, 1m, 5m, 15m, 1h, 12h and 24h (8 attempts in total). An endpoint with 10 consecutive abandoned deliveries is disabled; re-enable it in the portal. You can send test events and replay any delivery from the portal, which keeps 30 days of request and webhook logs.
+A entrega é **pelo menos uma vez** e sem ordem garantida. Deduplique por `X-Resgata-Event-Id`. Responda `2xx` em até 10 segundos. As falhas são reenviadas após 15s, 1min, 5min, 15min, 1h, 12h e 24h (8 tentativas no total). Um endpoint com 10 entregas abandonadas consecutivas é desativado; reative-o no portal. No portal você pode enviar eventos de teste e reenviar qualquer entrega, e ele guarda 30 dias de logs de requisições e de webhooks.
 
-Events: `campaign.started`, `campaign.paused`, `campaign.finished`, `campaign.failed`, `template.approved`, `template.rejected`, `template.status_changed`, `connection.created`, `connection.revoked`, `number.connected`, `number.disconnected`, `message.received`, `message.sent`, `message.delivered`, `message.read`, `message.failed`, `contact.opted_out`, `ping`.
+Eventos: `campaign.started`, `campaign.paused`, `campaign.finished`, `campaign.failed`, `template.approved`, `template.rejected`, `template.status_changed`, `connection.created`, `connection.revoked`, `number.connected`, `number.disconnected`, `message.received`, `message.sent`, `message.delivered`, `message.read`, `message.failed`, `contact.opted_out`, `ping`.
 
-Each endpoint receives only the events it is subscribed to. Endpoints created before an event type existed do not get it automatically: open the endpoint in the portal (Webhooks, Editar) and select the new events, or use "Selecionar todos". Without `campaign.*` your app never learns that a campaign finished.
+Cada endpoint recebe apenas os eventos nos quais está inscrito. Endpoints criados antes de um tipo de evento existir não o recebem automaticamente: abra o endpoint no portal (Webhooks, Editar) e marque os novos eventos, ou use "Selecionar todos". Sem os eventos `campaign.*`, o seu aplicativo nunca descobre que uma campanha terminou.
 
-`message.*` and `contact.opted_out` cover campaign sends and replies made through Meta official numbers. For campaigns created through this API they carry the `cmp_…` id and reach only the connection that created the campaign; for campaigns the customer creates in the Resgata app they reach every connected application.
+`message.*` e `contact.opted_out` cobrem envios e respostas de campanhas feitas por números da Meta oficial. Nas campanhas criadas por esta API eles trazem o id `cmp_…` e chegam só à conexão que criou a campanha; nas campanhas que o cliente cria no aplicativo da Resgata, chegam a todos os aplicativos conectados.
 
 ## Sandbox
 
-The sandbox is a complete copy of the API that runs on fake services. It needs no WhatsApp number, no Meta account, no customer and nothing from us: sign up, create a test key in the portal and build your whole integration. Nothing a test credential does can reach a real number, and live credentials cannot use the sandbox routes (`403 sandbox_only`). Payloads and webhook events have exactly the shape of the live ones.
+O sandbox é uma cópia completa da API que roda sobre serviços simulados. Não precisa de número de WhatsApp, de conta da Meta, de cliente nem de nada nosso: cadastre-se, crie uma chave de teste no portal e construa toda a sua integração. Nada que uma credencial de teste faça chega a um número real, e credenciais live não podem usar as rotas do sandbox (`403 sandbox_only`). Os payloads e os eventos de webhook têm exatamente o formato dos reais.
 
-Sandbox data is separate per environment (events, endpoints, keys and logs never mix). Configure your sandbox webhook endpoints in the portal like live ones; sandbox events go only to endpoints created for the sandbox environment.
+Os dados do sandbox são separados por ambiente (eventos, endpoints, chaves e logs nunca se misturam). Configure os endpoints de webhook do sandbox no portal como os live; os eventos do sandbox vão apenas para endpoints criados para o ambiente sandbox.
 
-### Getting started
+### Primeiros passos
 
-1. Create a sandbox connection with your `rf_test_app_…` key: `POST /connections {"external_ref": "your-user-id"}`. It comes with one connected fake number.
-2. Issue a connection token: `POST /connections/{id}/tokens`.
-3. Or skip steps 1 and 2 and test the OAuth flow itself (below).
+1. Crie uma conexão de sandbox com a sua chave `rf_test_app_…`: `POST /connections {"external_ref": "your-user-id"}`. Ela já vem com um número simulado conectado.
+2. Emita um token de conexão: `POST /connections/{id}/tokens`.
+3. Ou pule os passos 1 e 2 e teste o próprio fluxo de OAuth (abaixo).
 
-### Sandbox endpoints
+### Endpoints do sandbox
 
-All of them need a `rf_test_*` credential. "Token" means a sandbox connection token (no scope is needed for the helpers).
+Todos exigem uma credencial `rf_test_*`. "Token" significa um token de conexão do sandbox (os ajudantes não exigem nenhuma permissão).
 
-| Method and path | Credential | What it does |
+| Método e caminho | Credencial | O que faz |
 |---|---|---|
-| `POST /connections` | application key | Creates a sandbox connection (and its default number) |
-| `GET /oauth/sandbox/authorize` | none | Consent redirect without a customer (see below) |
-| `GET /numbers` | token | Lists the sandbox numbers with their `status` |
-| `POST /sandbox/numbers` | token | `{ "name"?, "phone"?, "status"? }` creates a number (default `connected`) |
-| `PATCH /sandbox/numbers/{id}` | token | `{ "status" }` changes the state and fires the matching `number.*` event |
-| `DELETE /sandbox/numbers/{id}` | token | Removes a number (fires `number.disconnected` if it was connected) |
-| `POST /templates`, `GET /templates`, … | token | Same contract as live, see Templates. Nothing is sent to Meta |
-| `POST /audiences`, `POST /campaigns`, `GET /campaigns`, … | token | Same contract as live, see Audiences and Campaigns. A campaign sends one simulated message per contact through the scenarios below, 50 contacts per second, and fires `campaign.*` and `message.*` |
-| `POST /templates/media` | token | Returns a fake `media_id` (`sbx_media_…`) so you can build header and carousel templates |
-| `POST /sandbox/templates/{id}/status` | token | `{ "status", "reason"? }` moves a template to any status and fires the matching `template.*` event |
-| `POST /sandbox/inbound-messages` | token | `{ "from", "text" }` simulates a customer reply (`message.received`) |
-| `POST /sandbox/opt-outs` | token | `{ "phone" }` simulates an opt-out (`contact.opted_out`) |
-| `POST /sandbox/events` | token | Fires any documented event at your sandbox endpoints (below) |
-| `POST /sandbox/meta-link` | token | `{ "status": "linked\|pending\|failed" }` sets the simulated Meta link state (see Testing the OAuth flow) |
-| `POST /sandbox/reset` | token or application key | Wipes sandbox data (below) |
+| `POST /connections` | chave do aplicativo | Cria uma conexão de sandbox (e o número padrão dela) |
+| `GET /oauth/sandbox/authorize` | nenhuma | Redirecionamento de consentimento sem cliente (veja abaixo) |
+| `GET /numbers` | token | Lista os números do sandbox com o `status` |
+| `POST /sandbox/numbers` | token | `{ "name"?, "phone"?, "status"? }` cria um número (padrão `connected`). `409 phone_in_use` se o telefone já existir |
+| `PATCH /sandbox/numbers/{id}` | token | `{ "status" }` muda o estado e dispara o evento `number.*` correspondente |
+| `DELETE /sandbox/numbers/{id}` | token | Remove um número (dispara `number.disconnected` se estava conectado) |
+| `POST /templates`, `GET /templates`, … | token | Mesmo contrato do live, veja Modelos. Nada é enviado à Meta |
+| `POST /audiences`, `POST /campaigns`, `GET /campaigns`, … | token | Mesmo contrato do live, veja Públicos e Campanhas. Uma campanha envia uma mensagem simulada por contato, pelos cenários abaixo, 50 contatos por segundo, e dispara `campaign.*` e `message.*` |
+| `POST /templates/media` | token | Devolve um `media_id` falso (`sbx_media_…`) para você montar modelos com cabeçalho e carrossel |
+| `POST /sandbox/templates/{id}/status` | token | `{ "status", "reason"? }` move um modelo para qualquer status e dispara o evento `template.*` correspondente |
+| `POST /sandbox/inbound-messages` | token | `{ "from", "text" }` simula a resposta de um cliente (`message.received`); responde `201` com a mensagem |
+| `POST /sandbox/opt-outs` | token | `{ "phone" }` simula um opt-out (`contact.opted_out`); responde `201` com `{ "object": "opt_out", "phone" }` |
+| `POST /sandbox/events` | token | Dispara qualquer evento documentado nos seus endpoints de sandbox (abaixo) |
+| `POST /sandbox/meta-link` | token | `{ "status": "linked\|pending\|failed" }` define o estado simulado do vínculo com a Meta (veja Testando o fluxo de OAuth) |
+| `POST /sandbox/reset` | token ou chave do aplicativo | Apaga os dados do sandbox (abaixo) |
 
-### Number states
+### Estados dos números
 
-`connected`, `disconnected`, `restricted`, `banned`, `qr_pending`. `connected` is `true` only in that state. `GET /connection/setup` follows the numbers and simulates the Meta checks: with a `connected` number every step is `complete`; `restricted` makes `messaging_restriction` `blocked`; `banned` makes `meta_linked` and `phone_status` `blocked`; `disconnected` and `qr_pending` leave `phone_status` `incomplete`; with no numbers `meta_linked` is `incomplete`. The other states only matter while no number is `connected`: one connected number is enough for `ready`.
+`connected`, `disconnected`, `restricted`, `banned`, `qr_pending`. `connected` é `true` somente nesse estado. `GET /connection/setup` acompanha os números e simula as verificações da Meta: com um número `connected` todas as etapas ficam `complete`; `restricted` deixa `messaging_restriction` como `blocked`; `banned` deixa `meta_linked` e `phone_status` como `blocked`; `disconnected` e `qr_pending` deixam `phone_status` como `incomplete`; sem números, `meta_linked` fica `incomplete`. Os outros estados só importam enquanto nenhum número estiver `connected`: um número conectado basta para o `ready`.
 
-Changing the state with `PATCH /sandbox/numbers/{id}` fires `number.connected` (state `connected`) or `number.disconnected` (any other state), with `data.number` = `{ id, name, phone, status }` and `data.source` = `sandbox_<status>`. The same status twice fires nothing.
+Mudar o estado com `PATCH /sandbox/numbers/{id}` dispara `number.connected` (estado `connected`) ou `number.disconnected` (qualquer outro estado), com `data.number` = `{ id, name, phone, status }` e `data.source` = `sandbox_<status>`. Repetir o mesmo status não dispara nada.
 
-### Message outcomes (magic phone numbers)
+### Resultados das mensagens (telefones mágicos)
 
-Include these numbers in an audience (any formatting, `+55 00 0000-0000` style works) to get deterministic outcomes for their message in a campaign. Any other number goes `queued → sent (0s) → delivered (2s) → read (5s)`.
+Inclua esses números em um público (com qualquer formatação; o estilo `+55 00 0000-0000` funciona) para obter resultados determinísticos para a mensagem deles em uma campanha. Qualquer outro número segue `queued → sent (0s) → delivered (2s) → read (5s)`.
 
-| Phone | Outcome |
+| Telefone | Resultado |
 |---|---|
-| `5500000000000` | `message.failed`, code `131026` (undeliverable) |
-| `5500000000001` | `message.failed`, code `131047` (re-engagement message) |
-| `5500000000002` | `message.failed`, code `131048` (spam rate limit hit) |
-| `5500000000003` | `message.failed`, code `131049` (not delivered to keep the ecosystem healthy) |
-| `5500000000004` | `message.failed`, code `131056` (pair rate limit hit) |
-| `5500000000010` | `sent`, never delivered |
-| `5500000000011` | `sent`, `delivered`, never read |
-| `5500000000012` | stays `queued`, never sent |
-| `5500000000020` | slow: `sent` after 30s, `delivered` after 60s, `read` after 120s |
-| `5500000000030` | goes to `read`, then 7s later `contact.opted_out` |
-| `5500000000031` | goes to `read`, then 8s later a `message.received` reply ("Recebi sua mensagem!") |
+| `5500000000000` | `message.failed`, código `131026` (não entregável) |
+| `5500000000001` | `message.failed`, código `131047` (mensagem de reengajamento) |
+| `5500000000002` | `message.failed`, código `131048` (limite de taxa de spam atingido) |
+| `5500000000003` | `message.failed`, código `131049` (não entregue para manter o ecossistema saudável) |
+| `5500000000004` | `message.failed`, código `131056` (limite de taxa do par atingido) |
+| `5500000000010` | `sent`, nunca entregue |
+| `5500000000011` | `sent`, `delivered`, nunca lida |
+| `5500000000012` | fica em `queued`, nunca enviada |
+| `5500000000020` | lenta: `sent` após 30s, `delivered` após 60s, `read` após 120s |
+| `5500000000030` | vai para `read` e, 7s depois, `contact.opted_out` |
+| `5500000000031` | vai para `read` e, 8s depois, uma resposta `message.received` ("Recebi sua mensagem!") |
 
-### Template outcomes (magic names)
+### Resultados dos modelos (nomes mágicos)
 
-A sandbox template goes `pending`, then `approved` about 5 seconds later (`template.approved`). The name decides the other outcomes:
+Um modelo do sandbox fica `pending` e depois `approved`, cerca de 5 segundos depois (`template.approved`). O nome decide os outros resultados:
 
-| Name contains | Outcome |
+| O nome contém | Resultado |
 |---|---|
-| `_reject` | `rejected` after about 3 seconds with `rejection_reason: INVALID_FORMAT` (`template.rejected`) |
-| `_pause` | `approved`, then `paused` 5 seconds later (`template.approved`, then `template.status_changed`) |
-| `_pending` | stays `pending` forever |
-| `_slow` | `approved` after 60 seconds |
+| `_reject` | `rejected` após cerca de 3 segundos, com `rejection_reason: INVALID_FORMAT` (`template.rejected`) |
+| `_pause` | `approved` e, 5 segundos depois, `paused` (`template.approved` e depois `template.status_changed`) |
+| `_pending` | fica `pending` para sempre |
+| `_slow` | `approved` após 60 segundos |
 
-Sandbox templates go through the same validation as live ones (limits, buttons, carousel rules), so an invalid template fails the same way in both. `template_available` in `GET /connection/setup` is `complete` once the connection has an approved sandbox template.
+Os modelos do sandbox passam pela mesma validação dos live (limites, botões, regras de carrossel), então um modelo inválido falha do mesmo jeito nos dois. `template_available` em `GET /connection/setup` fica `complete` assim que a conexão tem um modelo aprovado no sandbox.
 
-### Firing events
+### Disparando eventos
 
-`POST /sandbox/events` with `{ "type": "message.delivered" }` (any type in the Events list) builds a realistic payload and delivers it to your subscribed sandbox endpoints, so you can test handlers without waiting. Optional fields: `phone`, `text` (message events), `number_id` (number and opt-out events) and `data`, which is merged over the generated `data` (for example `{"data": {"message": {"from_name": "Maria"}}}`). Message events leave a stored sandbox message. `connection.revoked` and the number events only send the event, they never change the connection or the number. Answer `202` with the event envelope and `meta.deliveries` (how many endpoints it was queued for).
+`POST /sandbox/events` com `{ "type": "message.delivered" }` (qualquer tipo da lista de Eventos) monta um payload realista e o entrega nos seus endpoints de sandbox inscritos, para você testar os handlers sem esperar. Campos opcionais: `phone`, `text` (eventos de mensagem), `number_id` (eventos de número e de opt-out) e `data`, que é mesclado sobre o `data` gerado (por exemplo `{"data": {"message": {"from_name": "Maria"}}}`). Eventos de mensagem deixam uma mensagem de sandbox armazenada. `connection.revoked` e os eventos de número só enviam o evento, nunca alteram a conexão nem o número. A resposta é `202` com o envelope do evento e `meta.deliveries` (para quantos endpoints foi enfileirado). Um `type` desconhecido responde `422` com a lista `allowed`.
 
 ### Reset
 
-`POST /sandbox/reset` with a connection token deletes that connection's messages, numbers and events and recreates the default connected number (tokens and the connection stay). With the application key it does that for every sandbox connection of the application and also deletes sandbox events that belong to no connection; add `{"delete_connections": true}` to delete the sandbox connections and their tokens too. Live data is never touched.
+`POST /sandbox/reset` com um token de conexão apaga as mensagens, os números e os eventos dessa conexão e recria o número conectado padrão (os tokens e a conexão permanecem). Com a chave do aplicativo, faz isso para todas as conexões de sandbox do aplicativo e também apaga os eventos de sandbox que não pertencem a nenhuma conexão; acrescente `{"delete_connections": true}` para apagar também as conexões de sandbox e seus tokens. Dados live nunca são tocados.
 
-### Testing the OAuth flow
+### Testando o fluxo de OAuth
 
-Instead of sending the browser to `/autorizar` (live, needs a real Resgata customer), send it to:
+Em vez de mandar o navegador para `/autorizar` (live, exige um cliente Resgata de verdade), mande para:
 
 `GET https://app.resgatafacil.com/api/platform/v1/oauth/sandbox/authorize?client_id=…&redirect_uri=…&state=…&code_challenge=…&code_challenge_method=S256&scope=numbers:read%20campaigns:read&external_ref=…`
 
-It takes the same parameters as the live flow (the redirect URI must be registered on your application) and redirects immediately, as if a customer had approved, to `redirect_uri?code=…&state=…`. Exchange the code at `POST /oauth/token` exactly like live: you get an `rf_test_conn_…` token, a `connection.created` event and a sandbox connection with a default number. Reusing an `external_ref` reuses its connection; leaving it out generates one. Add `simulate=access_denied` or `simulate=external_ref_in_use` to get those error redirects. Invalid requests (unknown client, unregistered redirect, missing PKCE) answer `422` JSON and never redirect.
+Ele recebe os mesmos parâmetros do fluxo live (a URI de redirecionamento precisa estar cadastrada no seu aplicativo) e redireciona imediatamente, como se um cliente tivesse aprovado, para `redirect_uri?code=…&state=…`. Troque o código em `POST /oauth/token` exatamente como no live: você recebe um token `rf_test_conn_…`, um evento `connection.created` e uma conexão de sandbox com um número padrão. Reusar um `external_ref` reaproveita a conexão dele; omiti-lo gera um. Acrescente `simulate=access_denied` ou `simulate=external_ref_in_use` para receber esses redirecionamentos de erro. Requisições inválidas (cliente desconhecido, redirecionamento não cadastrado, PKCE ausente) respondem JSON `422` e nunca redirecionam.
 
-Add `meta=linked|pending|failed` to simulate the Meta step (default `linked`: the connection comes with the Meta account ready, as before). With `pending` or `failed`, `GET /connection/setup` shows `meta_linked` and everything that depends on it as `incomplete` (`ready: false`) until you finish the Meta step:
+Acrescente `meta=linked|pending|failed` para simular a etapa da Meta (padrão `linked`: a conexão já vem com a conta da Meta pronta, como antes). Com `pending` ou `failed`, `GET /connection/setup` mostra `meta_linked` e tudo o que depende dele como `incomplete` (`ready: false`) até você concluir a etapa da Meta:
 
-- `POST /connection/meta-link` with a sandbox token returns a signed sandbox URL (`…/api/platform/v1/oauth/sandbox/meta-link?…`) that redirects to your `return_url` with the same `?status=linked&connection=conn_…` contract as live and marks the connection as linked. Add `"simulate": "failed"` to the request to get `status=failed` instead.
-- `POST /sandbox/meta-link` with a sandbox token and `{ "status": "linked|pending|failed" }` sets the state directly, with no browser.
+- `POST /connection/meta-link` com um token de sandbox devolve uma URL de sandbox assinada (`…/api/platform/v1/oauth/sandbox/meta-link?…`) que redireciona para o seu `return_url` com o mesmo contrato `?status=linked&connection=conn_…` do live e marca a conexão como vinculada. Acrescente `"simulate": "failed"` à requisição para receber `status=failed`.
+- `POST /sandbox/meta-link` com um token de sandbox e `{ "status": "linked|pending|failed" }` define o estado diretamente, sem navegador.
 
-### Limits and retention
+### Limites e retenção
 
-Per application: 20 sandbox connections and 5000 sandbox events. Per connection: 5 numbers, 500 messages, 50 templates, 20 audiences (200 contacts each) and 20 campaigns. Beyond that the API answers `422 sandbox_limit_reached`; `POST /sandbox/reset` frees everything. Sandbox messages and events are deleted after 7 days, and sandbox connections unused for 90 days are deleted with their data.
+Por aplicativo: 20 conexões de sandbox e 5000 eventos de sandbox. Por conexão: 5 números, 500 mensagens, 50 modelos, 20 públicos (200 contatos cada) e 20 campanhas. Acima disso a API responde `422 sandbox_limit_reached`; `POST /sandbox/reset` libera tudo. Mensagens e eventos do sandbox são apagados após 7 dias, e conexões de sandbox sem uso por 90 dias são apagadas junto com os dados.
 
-### Curl walkthrough
+### Passo a passo com curl
 
 ```sh
 BASE=https://app.resgatafacil.com/api/platform/v1
@@ -409,6 +424,6 @@ curl -s -X POST $BASE/sandbox/events -H "$AUTH" -H 'Content-Type: application/js
 curl -s -X POST $BASE/sandbox/reset -H "$AUTH"
 ```
 
-## Removed: individual messages
+## Removido: mensagens individuais
 
-`POST /messages` and `GET /messages/{id}` no longer exist (they only worked in the sandbox). Messages are sent only by creating a campaign with an approved template and an audience. The `messages:send` and `messages:read` scopes are retired: authorization requests that still list them are accepted and the scopes are ignored. Message events (`message.sent|delivered|read|failed|received`) are unchanged.
+`POST /messages` e `GET /messages/{id}` não existem mais (só funcionavam no sandbox). As mensagens são enviadas somente criando uma campanha com um modelo aprovado e um público. As permissões `messages:send` e `messages:read` foram aposentadas: pedidos de autorização que ainda as listam são aceitos e elas são ignoradas. Os eventos de mensagem (`message.sent|delivered|read|failed|received`) continuam iguais.

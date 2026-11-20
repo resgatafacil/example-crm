@@ -64,7 +64,7 @@ func New(cfg config.Config, backend Backend, box *crypto.Box, client *resgata.Cl
 	s := &Server{cfg: cfg, local: backend.Local, ws: backend.Workspaces, box: box, client: client, loc: loc, now: time.Now}
 	if cfg.PortalMode() {
 		if backend.Workspaces == nil {
-			return nil, errors.New("portal mode needs a workspace manager")
+			return nil, errors.New("o modo portal precisa de um gerenciador de workspaces")
 		}
 		s.sessions, err = portal.NewSessions(cfg.EncryptionKey, cfg.SessionTTL)
 		if err != nil {
@@ -72,7 +72,7 @@ func New(cfg config.Config, backend Backend, box *crypto.Box, client *resgata.Cl
 		}
 		s.replay = portal.NewReplayGuard()
 	} else if backend.Local == nil {
-		return nil, errors.New("local mode needs a store")
+		return nil, errors.New("o modo local precisa de um banco de dados")
 	}
 	s.limiter = crmapi.NewLimiter(cfg.RateLimit, time.Minute)
 	if err := s.parseTemplates(); err != nil {
@@ -197,7 +197,7 @@ func SetupHandler(problems []config.Problem, suggestedKey string) http.Handler {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		var buf bytes.Buffer
 		if err := pages.ExecuteTemplate(&buf, "setup", map[string]any{"Problems": problems, "SuggestedKey": suggestedKey}); err != nil {
-			log.Printf("setup page: %v", err)
+			log.Printf("tela de configuração: %v", err)
 			return
 		}
 		_, _ = buf.WriteTo(w)
@@ -324,7 +324,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title, act
 	}
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, "layout", v); err != nil {
-		log.Printf("render %s: %v", name, err)
+		log.Printf("renderizando %s: %v", name, err)
 		http.Error(w, "Erro ao montar a página.", http.StatusInternalServerError)
 		return
 	}
@@ -336,7 +336,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name, title, act
 func (s *Server) fragment(w http.ResponseWriter, name string, data any) {
 	var buf bytes.Buffer
 	if err := s.pages["lead"].ExecuteTemplate(&buf, name, data); err != nil {
-		log.Printf("fragment %s: %v", name, err)
+		log.Printf("fragmento %s: %v", name, err)
 		http.Error(w, "Erro ao montar o trecho.", http.StatusInternalServerError)
 		return
 	}
@@ -346,7 +346,7 @@ func (s *Server) fragment(w http.ResponseWriter, name string, data any) {
 }
 
 func (s *Server) serverError(w http.ResponseWriter, err error) {
-	log.Printf("error: %v", err)
+	log.Printf("erro: %v", err)
 	http.Error(w, "Algo deu errado. Tente de novo.", http.StatusInternalServerError)
 }
 
@@ -367,7 +367,7 @@ func (s *Server) token(r *http.Request) (store.Connection, string, bool) {
 	}
 	plain, err := s.box.Open(conn.TokenEncrypted)
 	if err != nil {
-		log.Printf("cannot decrypt the stored token: %v", err)
+		log.Printf("não foi possível descriptografar o token guardado: %v", err)
 		return conn, "", false
 	}
 	return conn, plain, true
