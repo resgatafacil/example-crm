@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	envFile := flag.String("env-file", ".env", "optional file with KEY=value lines")
+	envFile := flag.String("env-file", ".env", "arquivo opcional com linhas CHAVE=valor")
 	flag.Parse()
 	_ = config.LoadDotEnv(*envFile, func(k, v string) { _ = os.Setenv(k, v) }, os.LookupEnv)
 
@@ -24,7 +24,7 @@ func main() {
 		raw := make([]byte, 16)
 		_, _ = rand.Read(raw)
 		secret = "mock_" + hex.EncodeToString(raw)
-		log.Printf("RESGATA_WEBHOOK_SECRET is not set, using a random one for this run: %s", secret)
+		log.Printf("RESGATA_WEBHOOK_SECRET não está definido, usando um segredo aleatório nesta execução: %s", secret)
 	}
 
 	mock := mockresgata.New(mockresgata.Options{
@@ -33,7 +33,7 @@ func main() {
 		WebhookSecret: secret,
 	})
 
-	log.Printf("mock Resgata Fácil platform on %s, sending webhooks to %s", addr, getenv("MOCK_WEBHOOK_URL", "http://localhost:8080/webhooks/resgata"))
+	log.Printf("plataforma Resgata Fácil simulada em %s, enviando webhooks para %s", addr, getenv("MOCK_WEBHOOK_URL", "http://localhost:8080/webhooks/resgata"))
 	srv := &http.Server{Addr: addr, Handler: mock.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(srv.ListenAndServe())
 }

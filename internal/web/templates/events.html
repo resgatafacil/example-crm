@@ -11,8 +11,8 @@
   <div class="body">
     {{if .Event.Reason}}<p class="outcome">{{if .Event.SignatureOK}}Resultado{{else}}Motivo{{end}}: {{.Event.Reason}}</p>{{end}}
     <dl class="details-list">
-      {{if .Event.EventID}}<div><dt>Event ID</dt><dd class="mono">{{.Event.EventID}}</dd></div>{{end}}
-      {{if .Event.DeliveryID}}<div><dt>Delivery ID</dt><dd class="mono">{{.Event.DeliveryID}}</dd></div>{{end}}
+      {{if .Event.EventID}}<div><dt>ID do evento</dt><dd class="mono">{{.Event.EventID}}</dd></div>{{end}}
+      {{if .Event.DeliveryID}}<div><dt>ID da entrega</dt><dd class="mono">{{.Event.DeliveryID}}</dd></div>{{end}}
     </dl>
     <pre>{{.Payload}}</pre>
   </div>

@@ -19,12 +19,12 @@ const (
 )
 
 var (
-	ErrMalformed  = errors.New("token malformed")
-	ErrSignature  = errors.New("token signature does not match")
-	ErrExpired    = errors.New("token expired")
-	ErrNotYet     = errors.New("token issued in the future")
-	ErrLifetime   = errors.New("token lifetime too long")
-	ErrIncomplete = errors.New("token without subject or id")
+	ErrMalformed  = errors.New("token malformado")
+	ErrSignature  = errors.New("a assinatura do token não confere")
+	ErrExpired    = errors.New("token expirado")
+	ErrNotYet     = errors.New("token emitido no futuro")
+	ErrLifetime   = errors.New("validade do token longa demais")
+	ErrIncomplete = errors.New("token sem identificador do desenvolvedor ou do token")
 )
 
 type Claims struct {

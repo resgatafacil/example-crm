@@ -1,97 +1,96 @@
-# Funil Demo: example CRM for the Resgata Fácil Platform API
+# Funil Demo: CRM de exemplo para a API da Plataforma Resgata Fácil
 
-A small, readable CRM written in Go that shows partners how to integrate with the
-**Resgata Fácil Platform API**: OAuth (authorization code with PKCE), the REST API and
-signed webhooks. It also exposes a **CRMSOLUT-style leads API**, so the whole flow works
-end to end: Resgata reads this CRM's leads, and this CRM sends campaigns through Resgata
-and reacts to the webhooks that come back. The Platform API has no individual sends:
-messages leave only through campaigns (an approved template plus an audience).
+Um CRM pequeno e legível, escrito em Go, que mostra para parceiros como integrar com a
+**API da Plataforma Resgata Fácil**: OAuth (código de autorização com PKCE), a API REST e
+webhooks assinados. Ele também expõe uma **API de leads no estilo CRMSOLUT**, para o fluxo
+funcionar de ponta a ponta: o Resgata lê os leads deste CRM, e este CRM envia campanhas pelo
+Resgata e reage aos webhooks que voltam. A API da Plataforma não tem envio individual: as
+mensagens saem apenas por campanhas (um modelo aprovado mais um público).
 
-The full API reference is in [docs/platform-api.md](docs/platform-api.md).
+A referência completa da API está em [docs/platform-api.md](docs/platform-api.md).
 
-The CRM itself is fictional ("Funil Demo"). Everything about the integration is real and
-meant to be copied.
+O CRM em si é fictício ("Funil Demo"). Tudo o que diz respeito à integração é real e feito
+para ser copiado.
 
-> Nota em português: este repositório é um CRM de exemplo para parceiros que vão integrar
-> com a API, os webhooks e o OAuth do Resgata Fácil. A interface está em português do
-> Brasil; o código e esta documentação estão em inglês. Veja "Quick start" para rodar no
-> sandbox sem precisar de cliente, número de WhatsApp ou conta na Meta.
+## O que você encontra
 
-## What you get
+- **Funil, leads e linha do tempo**: fluxos com etapas ordenadas, leads com estágio, marca de
+  opt-out e uma linha do tempo de notas, mensagens e respostas.
+- **OAuth com PKCE** para conectar um usuário ao Resgata Fácil, com mensagens de erro claras,
+  e o **vínculo com a Meta** que o cliente também faz (`POST /connection/meta-link`).
+- **Checklist de prontidão** (`GET /connection/setup`): as doze etapas que decidem se um
+  cliente pode enviar (Meta vinculada, empresa verificada, forma de pagamento, modelo
+  aprovado…), cada uma `complete`, `incomplete`, `blocked` ou `unknown`, com a ação para
+  resolver.
+- **Modelos** (`GET/POST /templates`): listar, criar e acompanhar a aprovação da Meta, com os
+  eventos `template.*`.
+- **Etapa "Enviar campanha" do fluxo**: escolha um modelo aprovado, escolha os leads de uma
+  etapa do funil, mapeie cada `{{n}}` (nome do lead, um campo do lead ou texto fixo) e o CRM
+  chama `POST /audiences` e depois `POST /campaigns`. O andamento, a pausa e a retomada
+  acompanham os webhooks `campaign.*` e `message.*` ao vivo.
+- **Receptor de webhooks** com verificação de assinatura, janela contra repetição,
+  deduplicação e uma página de eventos (entregas válidas e rejeitadas, JSON expansível,
+  filtro por tipo).
+- **Ferramentas de sandbox**: dispare qualquer evento documentado, simule a resposta de um
+  cliente ou um opt-out, crie números e mude o estado deles, zere o sandbox. Coloque os
+  telefones mágicos do sandbox em uma campanha para ver cada resultado (entregue, lida,
+  falha, opt-out, resposta).
+- **API no estilo CRMSOLUT** (`/api/v1/unidades`, `/fluxos`, `/leads`) com chaves bearer por
+  unidade, paginação por cursor e limite de requisições, exatamente no formato que a
+  integração CRMSOLUT do Resgata consome.
+- Uma **simulação da plataforma Resgata** (`cmd/mockresgata`) para testar tudo offline.
 
-- **Funnel board, leads and timeline**: flows with ordered steps, leads with stage, opt-out
-  flag and a timeline of notes, messages and replies.
-- **OAuth with PKCE** to connect a user to Resgata Fácil, with friendly errors, and the
-  **Meta link** the customer also does (`POST /connection/meta-link`).
-- **Readiness checklist** (`GET /connection/setup`): the twelve steps that decide whether a
-  customer can send (Meta linked, business verified, payment method, approved template…),
-  each `complete`, `incomplete`, `blocked` or `unknown`, with the action to fix it.
-- **Templates** (`GET/POST /templates`): list, create and follow the Meta approval, with
-  `template.*` events.
-- **"Enviar campanha" workflow step**: pick an approved template, pick leads from a funnel
-  step, map each `{{n}}` (lead name, a lead field or fixed text), and the CRM calls
-  `POST /audiences` then `POST /campaigns`. Progress, pause and resume follow `campaign.*`
-  and `message.*` webhooks live.
-- **Webhook receiver** with signature verification, replay window, deduplication and an
-  events page (valid and rejected deliveries, expandable JSON, filter by type).
-- **Sandbox tools**: fire any documented event, simulate a customer reply or an opt-out,
-  create numbers and change their state, reset the sandbox. Put the sandbox magic phone
-  numbers in a campaign to see every outcome (delivered, read, failed, opt-out, reply).
-- **CRMSOLUT-style API** (`/api/v1/unidades`, `/fluxos`, `/leads`) with per-unit bearer
-  keys, cursor pagination and rate limits, in the exact shape Resgata's CRMSOLUT
-  integration consumes.
-- A **mock of the Resgata platform** (`cmd/mockresgata`) to try everything offline.
+## Primeiros passos
 
-## Quick start
+Requisitos: Go 1.26 ou mais novo. Sem cgo e sem servidor de banco de dados (o SQLite é
+embutido).
 
-Requirements: Go 1.26 or newer. No cgo, no database server (SQLite is embedded).
+### 1. Contra o sandbox real do Resgata
 
-### 1. Against the real Resgata sandbox
-
-1. In the developer portal create an application, copy its `client_id` (`app_…`) and
-   register the redirect URI `http://localhost:8080/resgata/callback`.
-2. Create a **sandbox** webhook endpoint pointing at your public URL plus
-   `/webhooks/resgata` (see [Local development with a tunnel](#local-development-with-a-tunnel))
-   and copy its signing secret (`whsec_…`).
-3. Configure and run:
+1. No portal do desenvolvedor, crie um aplicativo, copie o `client_id` (`app_…`) e cadastre
+   a URI de redirecionamento `http://localhost:8080/resgata/callback`.
+2. Crie um endpoint de webhook do **sandbox** apontando para a sua URL pública mais
+   `/webhooks/resgata` (veja [Desenvolvimento local com túnel](#desenvolvimento-local-com-túnel))
+   e copie o segredo de assinatura (`whsec_…`).
+3. Configure e rode:
 
    ```sh
    cp .env.example .env
    openssl rand -base64 32
    ```
 
-   Paste the generated value into `APP_ENCRYPTION_KEY`, then fill `RESGATA_CLIENT_ID` and
-   `RESGATA_WEBHOOK_SECRET`. Optionally set `RESGATA_APP_KEY` (a `rf_test_app_…` key) to
-   enable the "create connection with the app key" shortcut.
+   Cole o valor gerado em `APP_ENCRYPTION_KEY` e preencha `RESGATA_CLIENT_ID` e
+   `RESGATA_WEBHOOK_SECRET`. Opcionalmente, defina `RESGATA_APP_KEY` (uma chave
+   `rf_test_app_…`) para habilitar o atalho "criar conexão com a chave do aplicativo".
 
    ```sh
    make run
    ```
 
-4. Open <http://localhost:8080>. If anything required is missing, a setup screen lists
-   exactly which variables to set. Follow "Primeiros passos" on the home page: it ticks
-   itself from real state.
+4. Abra <http://localhost:8080>. Se faltar algo obrigatório, uma tela de configuração lista
+   exatamente quais variáveis definir. Siga "Primeiros passos" na página inicial: a lista se
+   marca sozinha a partir do estado real.
 
-### 2. Offline, with the mock platform
+### 2. Offline, com a plataforma simulada
 
 ```sh
 make mock
 ```
 
-In another terminal, with the same secret in both processes:
+Em outro terminal, com o mesmo segredo nos dois processos:
 
 ```sh
 export RESGATA_API_URL=http://localhost:9090 RESGATA_APP_URL=http://localhost:9090
-export RESGATA_CLIENT_ID=app_mock RESGATA_WEBHOOK_SECRET=<any value> APP_ENCRYPTION_KEY=$(openssl rand -base64 32)
+export RESGATA_CLIENT_ID=app_mock RESGATA_WEBHOOK_SECRET=<qualquer valor> APP_ENCRYPTION_KEY=$(openssl rand -base64 32)
 make run
 ```
 
-The mock sends signed webhooks to `http://localhost:8080/webhooks/resgata` (override with
-`MOCK_WEBHOOK_URL`). It implements the same endpoints and shapes as the sandbox: the
-readiness checklist, the Meta link, templates (approved in seconds; a name containing
-`_reject` is rejected and one with `_pending` stays in review), audiences, campaigns with
-progress, pause and resume, `campaign.*`, `template.*` and `message.*` events with `cmp_…`
-ids, and the sandbox magic phone numbers. `POST /messages` answers `404`, like the real API.
+A simulação envia webhooks assinados para `http://localhost:8080/webhooks/resgata` (troque
+com `MOCK_WEBHOOK_URL`). Ela implementa os mesmos endpoints e formatos do sandbox: o
+checklist de prontidão, o vínculo com a Meta, modelos (aprovados em segundos; um nome com
+`_reject` é recusado e um com `_pending` fica em análise), públicos, campanhas com andamento,
+pausa e retomada, eventos `campaign.*`, `template.*` e `message.*` com ids `cmp_…`, e os
+telefones mágicos do sandbox. `POST /messages` responde `404`, como a API real.
 
 ### 3. Docker
 
@@ -101,85 +100,87 @@ docker compose up --build
 docker compose --profile offline up --build
 ```
 
-The second command also starts the mock platform. The compose file keeps the databases in
-the `funil-data` volume mounted at `/data`; the image sets `DATA_DIR=/data`, so portal mode
-stores its registry and workspaces there too. Keep that volume on persistent storage if you
-want workspaces to survive a redeploy.
+O segundo comando também sobe a plataforma simulada. O arquivo compose guarda os bancos no
+volume `funil-data`, montado em `/data`; a imagem define `DATA_DIR=/data`, então o modo
+portal também guarda ali o registro e os workspaces. Mantenha esse volume em armazenamento
+persistente se quiser que os workspaces sobrevivam a um novo deploy.
 
-## Configuration
+## Configuração
 
-Everything comes from environment variables (a `.env` file in the working directory is
-loaded for convenience and never overrides real environment variables). **No key, token or
-secret lives in the code or in the repository.**
+Tudo vem de variáveis de ambiente (um arquivo `.env` no diretório de trabalho é carregado
+por conveniência e nunca sobrescreve variáveis de ambiente reais). **Nenhuma chave, token ou
+segredo fica no código nem no repositório.**
 
-| Variable | Required | Default | What it is |
+| Variável | Obrigatória | Padrão | O que é |
 |---|---|---|---|
-| `APP_ENCRYPTION_KEY` | yes | | 32 random bytes in base64. Encrypts the Resgata connection token at rest (AES-GCM). `openssl rand -base64 32` |
-| `RESGATA_CLIENT_ID` | yes | | Application id (`app_…`) from the developer portal |
-| `RESGATA_WEBHOOK_SECRET` | yes | | Webhook signing secret (`whsec_…`) from the portal |
-| `RESGATA_ENVIRONMENT` | no | `sandbox` | `sandbox` or `live`. Sandbox uses `/oauth/sandbox/authorize` and shows the sandbox tools; live uses `/autorizar` |
-| `RESGATA_APP_KEY` | no | | `rf_test_app_…` key, only for the sandbox shortcut that creates a connection without OAuth |
-| `RESGATA_API_URL` | no | `https://app.resgatafacil.com/api/platform/v1` | Platform API base URL |
-| `RESGATA_APP_URL` | no | `https://app.resgatafacil.com` | Where `/autorizar` lives |
-| `PUBLIC_URL` | no | `http://localhost` + `APP_ADDR` | Public address of this app. Builds the OAuth redirect URI (`PUBLIC_URL/resgata/callback`) and the webhook URL shown in the UI |
-| `APP_ADDR` | no | `:8080` | Listen address |
-| `DATABASE_PATH` | no | `data/funil.db` | SQLite file |
-| `ADMIN_PASSWORD` | no | | If set, the admin UI asks for HTTP basic auth (any user name, this password). **If unset the UI is open to anyone who can reach it**: fine on localhost, not on the internet |
-| `CRM_API_RATE_LIMIT` | no | `60` | Requests per minute per CRM API key |
-| `DATA_DIR` | no | folder of `DATABASE_PATH` | Where portal mode keeps `registry.db` and `workspaces/<id>.db` |
-| `PORTAL_SSO_SECRET` | no | | Turns [portal gating](#gating-the-demo-with-the-resgata-developers-portal) on and replaces `ADMIN_PASSWORD`. At least 16 characters; `openssl rand -hex 32` |
-| `PORTAL_URL` | no | `https://developers.resgatafacil.com` | Where the gate page and "Sair" send people |
-| `WORKSPACE_TTL_HOURS` | no | `24` | Hours without activity before a workspace is deleted |
-| `MAX_WORKSPACES` | no | `50` | Workspaces that can exist at once; beyond it new developers see a "demo is full" page |
-| `SESSION_TTL_HOURS` | no | `8` | Lifetime of the session cookie |
-| `WORKSPACE_PURGE_INTERVAL_MINUTES` | no | `15` | How often idle workspaces are looked for |
+| `APP_ENCRYPTION_KEY` | sim | | 32 bytes aleatórios em base64. Criptografa o token de conexão do Resgata em repouso (AES-GCM). `openssl rand -base64 32` |
+| `RESGATA_CLIENT_ID` | sim | | Id do aplicativo (`app_…`) no portal do desenvolvedor |
+| `RESGATA_WEBHOOK_SECRET` | sim | | Segredo de assinatura do webhook (`whsec_…`) no portal |
+| `RESGATA_ENVIRONMENT` | não | `sandbox` | `sandbox` ou `live`. O sandbox usa `/oauth/sandbox/authorize` e mostra as ferramentas de sandbox; o live usa `/autorizar` |
+| `RESGATA_APP_KEY` | não | | Chave `rf_test_app_…`, só para o atalho do sandbox que cria uma conexão sem OAuth |
+| `RESGATA_API_URL` | não | `https://app.resgatafacil.com/api/platform/v1` | URL base da API da Plataforma |
+| `RESGATA_APP_URL` | não | `https://app.resgatafacil.com` | Onde fica o `/autorizar` |
+| `PUBLIC_URL` | não | `http://localhost` + `APP_ADDR` | Endereço público deste app. Monta a URI de redirecionamento do OAuth (`PUBLIC_URL/resgata/callback`) e a URL do webhook mostrada na interface |
+| `APP_ADDR` | não | `:8080` | Endereço de escuta |
+| `DATABASE_PATH` | não | `data/funil.db` | Arquivo SQLite |
+| `ADMIN_PASSWORD` | não | | Se definida, a interface administrativa pede autenticação HTTP basic (qualquer usuário, esta senha). **Se não for definida, a interface fica aberta para quem conseguir alcançá-la**: aceitável no localhost, não na internet |
+| `CRM_API_RATE_LIMIT` | não | `60` | Requisições por minuto por chave da API do CRM |
+| `DATA_DIR` | não | pasta de `DATABASE_PATH` | Onde o modo portal guarda `registry.db` e `workspaces/<id>.db` |
+| `PORTAL_SSO_SECRET` | não | | Liga o [acesso pelo portal](#restringindo-o-demo-ao-portal-de-desenvolvedores-do-resgata) e substitui `ADMIN_PASSWORD`. Pelo menos 16 caracteres; `openssl rand -hex 32` |
+| `PORTAL_URL` | não | `https://developers.resgatafacil.com` | Para onde a tela de entrada e o "Sair" levam as pessoas |
+| `WORKSPACE_TTL_HOURS` | não | `24` | Horas sem atividade antes de um workspace ser apagado |
+| `MAX_WORKSPACES` | não | `50` | Workspaces que podem existir ao mesmo tempo; acima disso, novos desenvolvedores veem uma página de "demo lotado" |
+| `SESSION_TTL_HOURS` | não | `8` | Duração do cookie de sessão |
+| `WORKSPACE_PURGE_INTERVAL_MINUTES` | não | `15` | Com que frequência se procuram workspaces ociosos |
 
-Demo data (units, flows, 15 leads, including sandbox magic numbers) is created the first
-time the database is empty. Pass `--no-seed` to start empty.
+Os dados de demonstração (unidades, fluxos, 15 leads, incluindo os números mágicos do
+sandbox) são criados na primeira vez que o banco está vazio. Use `--no-seed` para começar
+vazio.
 
-## Gating the demo with the Resgata developers portal
+## Restringindo o demo ao portal de desenvolvedores do Resgata
 
-By default the demo is one workspace, open on localhost or behind `ADMIN_PASSWORD`. To host
-it publicly for people who have access to the Resgata developers portal, set
-`PORTAL_SSO_SECRET`. Portal mode changes three things:
+Por padrão o demo é um único workspace, aberto no localhost ou protegido por
+`ADMIN_PASSWORD`. Para hospedá-lo publicamente para quem tem acesso ao portal de
+desenvolvedores do Resgata, defina `PORTAL_SSO_SECRET`. O modo portal muda três coisas:
 
-- **Entry only through the portal.** The portal sends the signed-in developer to
-  `GET /portal-login?token=<token>`. Without a valid session every admin page shows
-  "Entre pelo portal de desenvolvedores" with a button to `PORTAL_URL`. `/webhooks/resgata`,
-  `/api/v1/*`, static files and `/healthz` stay reachable, because they carry their own
-  authentication.
-- **One workspace per developer.** The token's `sub` becomes a stable workspace id
-  (the first 16 hex characters of `sha256("funil-demo/workspace/v1:" + sub)`). Each
-  workspace is its own SQLite file with its own seeded data, CRM API keys (they look like
-  `crm_<workspace id>_<random>`), encrypted Resgata connection and event log. The workspace
-  id is also the `external_ref` of its Resgata connection, which is how webhooks find their
-  way back: the one application-level webhook secret verifies the signature, then the event
-  goes to the workspace named by `connection.external_ref`. Events for an unknown workspace
-  are answered with `200` and dropped, so Resgata does not keep retrying them.
-- **Cleanup.** A workspace idle for `WORKSPACE_TTL_HOURS` is deleted: the app first calls
-  `DELETE /connection` with the workspace's token (failures are logged and the purge
-  continues), then removes the database and the registry row. "Reiniciar" in the header
-  does the same for the developer's own workspace and seeds it again. `MAX_WORKSPACES`
-  protects the host and the sandbox quotas of your Resgata application, which are counted
-  per application.
+- **Entrada só pelo portal.** O portal envia o desenvolvedor autenticado para
+  `GET /portal-login?token=<token>`. Sem uma sessão válida, toda página administrativa
+  mostra "Entre pelo portal de desenvolvedores" com um botão para `PORTAL_URL`.
+  `/webhooks/resgata`, `/api/v1/*`, os arquivos estáticos e `/healthz` continuam acessíveis,
+  porque trazem a própria autenticação.
+- **Um workspace por desenvolvedor.** O `sub` do token vira um id estável de workspace (os
+  16 primeiros caracteres hexadecimais de `sha256("funil-demo/workspace/v1:" + sub)`). Cada
+  workspace é um arquivo SQLite próprio, com dados de demonstração próprios, chaves da API do
+  CRM próprias (no formato `crm_<id do workspace>_<aleatório>`), conexão criptografada com o
+  Resgata e log de eventos. O id do workspace também é o `external_ref` da conexão dele com o
+  Resgata, e é assim que os webhooks encontram o caminho de volta: o único segredo de webhook
+  do aplicativo verifica a assinatura, e então o evento vai para o workspace indicado em
+  `connection.external_ref`. Eventos de um workspace desconhecido são respondidos com `200` e
+  descartados, para o Resgata não ficar tentando de novo.
+- **Limpeza.** Um workspace ocioso por `WORKSPACE_TTL_HOURS` é apagado: o app primeiro chama
+  `DELETE /connection` com o token do workspace (falhas são registradas no log e a limpeza
+  continua) e depois remove o banco e a linha do registro. O "Reiniciar" no cabeçalho faz o
+  mesmo com o workspace do próprio desenvolvedor e popula os dados de novo. `MAX_WORKSPACES`
+  protege o servidor e as cotas de sandbox do seu aplicativo no Resgata, que são contadas por
+  aplicativo.
 
-### The login token
+### O token de login
 
-The portal builds the token; this app only verifies it.
+O portal monta o token; este app só o verifica.
 
 ```
 token     = base64url(payload) + "." + base64url(HMAC_SHA256(secret, base64url(payload)))
-payload   = {"sub": "<stable developer id>", "name": "<display name>",
-             "iat": <unix>, "exp": <iat + 60>, "jti": "<unique id>"}
+payload   = {"sub": "<id estável do desenvolvedor>", "name": "<nome de exibição>",
+             "iat": <unix>, "exp": <iat + 60>, "jti": "<id único>"}
 ```
 
-Both parts use raw base64url (no `=` padding) and the HMAC covers the first part exactly as
-it is sent. The key is `PORTAL_SSO_SECRET`. The app accepts a token once (`jti` is
-remembered until it expires), rejects `exp` in the past (5 seconds of clock skew allowed),
-tokens issued in the future and lifetimes above 5 minutes, and compares signatures in
-constant time.
+As duas partes usam base64url puro (sem o padding `=`) e o HMAC cobre a primeira parte
+exatamente como ela é enviada. A chave é `PORTAL_SSO_SECRET`. O app aceita um token uma vez
+(o `jti` é lembrado até expirar), rejeita `exp` no passado (com tolerância de 5 segundos de
+diferença de relógio), tokens emitidos no futuro e validades acima de 5 minutos, e compara
+assinaturas em tempo constante.
 
-Go, using this repository's package:
+Em Go, usando o pacote deste repositório:
 
 ```go
 token, err := portal.Sign(secret, portal.Claims{
@@ -189,7 +190,7 @@ token, err := portal.Sign(secret, portal.Claims{
 loginURL := "https://demo.example.com/portal-login?token=" + url.QueryEscape(token)
 ```
 
-Any other language:
+Em qualquer outra linguagem:
 
 ```
 payload = json({sub, name, iat, exp, jti})
@@ -198,100 +199,101 @@ part2   = base64url_nopad(hmac_sha256(key = secret, message = part1))
 token   = part1 + "." + part2
 ```
 
-For local work, `cmd/mktoken` signs one from `PORTAL_SSO_SECRET`:
+Para trabalhar localmente, o `cmd/mktoken` assina um token a partir de `PORTAL_SSO_SECRET`:
 
 ```sh
 go run ./cmd/mktoken -sub dev-1 -name "Maria Souza" -url http://localhost:8080
 ```
 
-It prints a ready-to-open login link (omit `-url` to print only the token). Each link works
-once, so run it again for every sign-in.
+Ele imprime um link de login pronto para abrir (omita `-url` para imprimir só o token). Cada
+link funciona uma vez, então rode o comando de novo a cada entrada.
 
-### Security notes for portal mode
+### Notas de segurança do modo portal
 
-- The session cookie is `workspaceId.expiry.signature`, signed with a key derived from
-  `APP_ENCRYPTION_KEY` (HKDF-SHA256 with a fixed context label), `HttpOnly`,
-  `SameSite=Lax`, and `Secure` when `PUBLIC_URL` is `https`. It carries no personal data.
-- A cookie whose workspace was purged no longer works; its owner lands on the gate page.
-- The token travels in a URL, so it lives for a minute, works once and the response is
-  `Cache-Control: no-store`. Serve the app over https in production.
-- Keep `PORTAL_SSO_SECRET` out of the repository and out of client code. Rotating it signs
-  everybody out of the login link flow but keeps existing sessions until they expire.
-- The demo runs only on the Resgata sandbox. Do not point portal mode at live credentials.
+- O cookie de sessão é `workspaceId.validade.assinatura`, assinado com uma chave derivada de
+  `APP_ENCRYPTION_KEY` (HKDF-SHA256 com um rótulo de contexto fixo), `HttpOnly`,
+  `SameSite=Lax` e `Secure` quando `PUBLIC_URL` é `https`. Ele não carrega dados pessoais.
+- Um cookie cujo workspace foi apagado deixa de funcionar; o dono cai na tela de entrada.
+- O token viaja em uma URL, então vive por um minuto, funciona uma vez e a resposta tem
+  `Cache-Control: no-store`. Sirva o app em https em produção.
+- Mantenha `PORTAL_SSO_SECRET` fora do repositório e fora de código de cliente. Trocá-lo
+  derruba o fluxo do link de login para todos, mas mantém as sessões existentes até
+  expirarem.
+- O demo roda somente no sandbox do Resgata. Não aponte o modo portal para credenciais live.
 
-## The flow, step by step
+## O fluxo, passo a passo
 
 ```
- ┌────────────┐  1. authorize (PKCE)   ┌───────────────────────┐
+ ┌────────────┐  1. autorizar (PKCE)   ┌───────────────────────┐
  │  Funil Demo│ ─────────────────────► │ Resgata Fácil          │
- │  (this app)│ ◄───────────────────── │ /autorizar or sandbox  │
+ │  (este app)│ ◄───────────────────── │ /autorizar ou sandbox  │
  │            │  2. code + state       │                       │
  │            │  3. POST /oauth/token  │                       │
- │            │ ─────────────────────► │  Platform API          │
+ │            │ ─────────────────────► │  API da Plataforma     │
  │            │ ◄───────────────────── │  /api/platform/v1      │
- │            │  token (stored         │                       │
- │            │  encrypted)            │                       │
+ │            │  token (guardado       │                       │
+ │            │  criptografado)        │                       │
  │            │  4. GET /connection/setup, /templates           │
  │            │  5. POST /audiences, POST /campaigns ─────────► │
  │            │                        │                       │
- │            │  6. signed webhooks    │   WhatsApp / sandbox   │
+ │            │  6. webhooks assinados │   WhatsApp / sandbox   │
  │            │ ◄───────────────────── │   message.sent ...     │
  └─────┬──────┘  POST /webhooks/resgata└───────────┬───────────┘
        │                                           │
        │  7. GET /api/v1/leads (Bearer crm_…)      │
        └◄──────────────────────────────────────────┘
-          Resgata reads this CRM like it reads CRMSOLUT
+          O Resgata lê este CRM como lê o CRMSOLUT
 ```
 
-1. **Connect.** `GET /resgata/conectar` creates a random `state` and a PKCE `code_verifier`
-   (kept server side), then redirects to `/autorizar` (live) or
-   `/oauth/sandbox/authorize` (sandbox) with `client_id`, `redirect_uri`, `state`,
-   `code_challenge` (S256), `scope` and `external_ref`. The verifier never leaves the server.
-   The scopes are `numbers:read templates:read templates:write audiences:write
-   campaigns:read campaigns:write`; there is no message scope.
-2. **Callback.** `GET /resgata/callback` checks the one-time `state`, handles
-   `error=access_denied|external_ref_in_use`, then exchanges the code at
-   `POST /oauth/token` with the verifier. The returned connection token is encrypted with
-   AES-GCM before it is stored.
-3. **Meta and readiness.** Besides Resgata, the customer links their WhatsApp Business
-   account through Meta. `GET /resgata/meta` calls `POST /connection/meta-link` with a
-   `return_url` and redirects to the returned link; the customer comes back to
-   `/integracao`. `GET /connection/setup` returns every step with its `status`, `detail`
-   and `action_url`; the UI draws them and offers the Meta link while `meta_linked` is not
-   complete.
-4. **Templates.** `GET /templates` and `POST /templates` (`name`, `category`, `language`,
-   `body.text` with one `body.examples` entry per variable, optional `footer`). Only
-   `approved` templates can be used; Meta decides, so the status moves on its own and
-   `template.approved|rejected|status_changed` arrive by webhook.
-5. **Send a campaign.** There is no individual send. The "Enviar campanha" step builds the
-   audience from the CRM leads (`POST /audiences`, `contacts[].phone`, `name`,
-   `variables`) and creates the campaign (`POST /campaigns` with `template_id`,
-   `audience_id` and `variables` such as `{"1": "@nome", "2": "@variavel_1"}`). Leads that
-   opted out never enter the audience. `POST /campaigns/{id}/pause` and `/resume` stop and
-   restart it. API errors (`meta_not_ready`, `no_slot_available`, `template_not_approved`,
-   `waba_restricted`, `spend_limit_reached`…) are turned into plain explanations.
-6. **Receive.** Resgata calls `POST /webhooks/resgata`. The handler:
-   - reads the **raw body** and verifies `X-Resgata-Signature` (`t=<unix>,v1=<hex>`):
-     `HMAC_SHA256(secret, t + "." + rawBody)`, constant-time comparison against **every**
-     `v1`, rejected when `|now - t| > 300s`;
-   - stores the event (rejected ones too, for the events page);
-   - **deduplicates** on `X-Resgata-Event-Id` (delivery is at least once and unordered);
-   - applies it: `message.*` statuses only ever move forward (a late `sent` never
-     overwrites `read`; `failed` is final) and, when `message.campaign_id` is one of this
-     CRM's campaigns, land on the matching lead and update the campaign counters;
-     `campaign.*` events update status and progress (a late `campaign.started` never
-     reopens a finished campaign); `message.received` lands on the lead matching the phone
-     (or creates a lead in the first step of the first flow), `contact.opted_out` sets
-     `opt_out`, `connection.revoked` deletes the token;
-   - answers `2xx` quickly. If processing fails it answers `500` and the event is **not**
-     marked processed, so the retry is applied instead of dropped as a duplicate.
-7. **Let Resgata read your leads.** Create a key on **Chaves da API** and give Resgata the
-   base URL plus the key (see below).
+1. **Conectar.** `GET /resgata/conectar` cria um `state` aleatório e um `code_verifier` PKCE
+   (guardado no servidor) e redireciona para `/autorizar` (live) ou
+   `/oauth/sandbox/authorize` (sandbox) com `client_id`, `redirect_uri`, `state`,
+   `code_challenge` (S256), `scope` e `external_ref`. O verifier nunca sai do servidor.
+   As permissões são `numbers:read templates:read templates:write audiences:write
+   campaigns:read campaigns:write`; não existe permissão de mensagem.
+2. **Retorno.** `GET /resgata/callback` confere o `state` de uso único, trata
+   `error=access_denied|external_ref_in_use` e troca o código em `POST /oauth/token` com o
+   verifier. O token de conexão recebido é criptografado com AES-GCM antes de ser guardado.
+3. **Meta e prontidão.** Além do Resgata, o cliente vincula a conta do WhatsApp Business pela
+   Meta. `GET /resgata/meta` chama `POST /connection/meta-link` com um `return_url` e
+   redireciona para o link recebido; o cliente volta para `/integracao`.
+   `GET /connection/setup` devolve cada etapa com `status`, `detail` e `action_url`; a
+   interface as desenha e oferece o vínculo com a Meta enquanto `meta_linked` não estiver
+   completo.
+4. **Modelos.** `GET /templates` e `POST /templates` (`name`, `category`, `language`,
+   `body.text` com uma entrada em `body.examples` por variável, `footer` opcional). Só
+   modelos `approved` podem ser usados; quem decide é a Meta, então o status muda sozinho e
+   `template.approved|rejected|status_changed` chegam por webhook.
+5. **Enviar uma campanha.** Não existe envio individual. A etapa "Enviar campanha" monta o
+   público a partir dos leads do CRM (`POST /audiences`, `contacts[].phone`, `name`,
+   `variables`) e cria a campanha (`POST /campaigns` com `template_id`, `audience_id` e
+   `variables` como `{"1": "@nome", "2": "@variavel_1"}`). Leads com opt-out nunca entram no
+   público. `POST /campaigns/{id}/pause` e `/resume` param e retomam a campanha. Os erros da
+   API (`meta_not_ready`, `no_slot_available`, `template_not_approved`, `waba_restricted`,
+   `spend_limit_reached`…) viram explicações em linguagem simples.
+6. **Receber.** O Resgata chama `POST /webhooks/resgata`. O handler:
+   - lê o **corpo cru** e verifica o `X-Resgata-Signature` (`t=<unix>,v1=<hex>`):
+     `HMAC_SHA256(secret, t + "." + rawBody)`, comparação em tempo constante com **todos** os
+     `v1`, rejeitado quando `|agora - t| > 300s`;
+   - guarda o evento (os rejeitados também, para a página de eventos);
+   - **deduplica** por `X-Resgata-Event-Id` (a entrega é pelo menos uma vez e sem ordem);
+   - aplica o evento: os status de `message.*` só avançam (um `sent` atrasado nunca
+     sobrescreve `read`; `failed` é final) e, quando `message.campaign_id` é de uma campanha
+     deste CRM, caem no lead correspondente e atualizam os contadores da campanha; os
+     eventos `campaign.*` atualizam status e andamento (um `campaign.started` atrasado nunca
+     reabre uma campanha encerrada); `message.received` cai no lead com o mesmo telefone (ou
+     cria um lead na primeira etapa do primeiro fluxo), `contact.opted_out` marca `opt_out` e
+     `connection.revoked` apaga o token;
+   - responde `2xx` rápido. Se o processamento falhar, responde `500` e o evento **não** é
+     marcado como processado, então a nova tentativa é aplicada em vez de descartada como
+     duplicada.
+7. **Deixar o Resgata ler seus leads.** Crie uma chave em **Chaves da API** e entregue ao
+   Resgata a URL base mais a chave (veja abaixo).
 
-## The CRMSOLUT-style API
+## A API no estilo CRMSOLUT
 
-Base `/api/v1`, `Authorization: Bearer crm_<random>`. Keys belong to a unit and only see
-that unit's leads. They are stored hashed (SHA-256) and shown once.
+Base `/api/v1`, `Authorization: Bearer crm_<aleatório>`. As chaves pertencem a uma unidade e
+só enxergam os leads dela. São guardadas com hash (SHA-256) e exibidas uma única vez.
 
 ```sh
 BASE=http://localhost:8080/api/v1
@@ -303,104 +305,108 @@ curl -H "Authorization: Bearer $KEY" "$BASE/leads?estagio=lead&limite=2"
 curl -H "Authorization: Bearer $KEY" "$BASE/leads?limite=2&cursor=<proximo_cursor>"
 ```
 
-| Route | Notes |
+| Rota | Observações |
 |---|---|
-| `GET /unidades` | The key's unit: `id`, `nome`, `cidade`, `estado`, `ativa` |
-| `GET /fluxos` | Flows with ordered `etapas` (`id`, `nome`, `ordem`, `inicial`) |
-| `GET /leads` | Filters `organizacao_id`, `fluxo_id`, `etapa_id`, `estagio` (`lead`, `avaliado`, `cliente`), `limite` (1 to 500, default 50), `cursor` |
+| `GET /unidades` | A unidade da chave: `id`, `nome`, `cidade`, `estado`, `ativa` |
+| `GET /fluxos` | Fluxos com `etapas` ordenadas (`id`, `nome`, `ordem`, `inicial`) |
+| `GET /leads` | Filtros `organizacao_id`, `fluxo_id`, `etapa_id`, `estagio` (`lead`, `avaliado`, `cliente`), `limite` (1 a 500, padrão 50), `cursor` |
 
 Envelope: `{ "dados": [...], "paginacao": { "quantidade", "tem_mais", "proximo_cursor" } }`.
-A lead has `id`, `nome`, `celular` (E.164), `email`, `estagio`, `opt_out`, `unidade`,
-`fluxo`, `etapa` (each `{id, nome}`), `criado_em` and `alterado_em` (ISO 8601). `opt_out`
-turns `true` when Resgata reports `contact.opted_out`.
+Um lead tem `id`, `nome`, `celular` (E.164), `email`, `estagio`, `opt_out`, `unidade`,
+`fluxo`, `etapa` (cada um `{id, nome}`), `criado_em` e `alterado_em` (ISO 8601). `opt_out`
+vira `true` quando o Resgata informa `contact.opted_out`.
 
-Errors: `401` bad key, `403` suspended unit or another unit's id, `422`
-`{ "erro": { "campos": [{ "campo", "motivo" }] } }`, `429` with `Retry-After`. Every
-authenticated answer carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`.
+Erros: `401` chave inválida, `403` unidade suspensa ou id de outra unidade, `422`
+`{ "erro": { "campos": [{ "campo", "motivo" }] } }`, `429` com `Retry-After`. Toda resposta
+autenticada traz `RateLimit-Limit`, `RateLimit-Remaining` e `RateLimit-Reset`.
 
-To have the Resgata app read this CRM instead of CRMSOLUT in a test environment, set its
-`CRMSOLUT_BASE_URL` to this app's `/api/v1` and paste a key into the CRMSOLUT integration
-screen. The contract was verified by running Resgata's own PHP CRMSOLUT client and lead
-reader against this API.
+Para fazer o aplicativo do Resgata ler este CRM no lugar do CRMSOLUT em um ambiente de
+testes, defina o `CRMSOLUT_BASE_URL` dele como o `/api/v1` deste app e cole uma chave na
+tela da integração CRMSOLUT. O contrato foi verificado rodando o próprio cliente CRMSOLUT em
+PHP e o leitor de leads do Resgata contra esta API.
 
-## Where each Resgata concept lives
+## Onde mora cada conceito do Resgata
 
-| Concept | File |
+| Conceito | Arquivo |
 |---|---|
-| Platform API client (`/connection`, `/numbers`, sandbox helpers) | `internal/resgata/client.go` |
-| Templates, audiences, campaigns and Meta link client | `internal/resgata/campaigns.go` |
-| PKCE verifier and challenge, authorize URL, OAuth error messages | `internal/resgata/oauth.go` |
-| Webhook signature verification and signing | `internal/resgata/webhook.go` |
-| Event envelope types, failure code explanations | `internal/resgata/events.go` |
-| OAuth start, callback, disconnect | `internal/web/oauth.go` |
-| Webhook receiver (verify, store, dedupe, apply, answer) | `internal/web/webhook.go` |
-| What each event does to the CRM | `internal/events/apply.go` |
-| Token encryption at rest (AES-GCM) | `internal/crypto/box.go` |
-| CRMSOLUT-style API and rate limiter | `internal/crmapi/` |
-| Connection page, setup checklist, numbers | `internal/web/connection.go`, `internal/web/templates/connection.html` |
-| Templates screen | `internal/web/modelos.go`, `internal/web/templates/templates.html` |
-| "Enviar campanha" step, progress, pause and resume | `internal/web/campanhas.go`, `internal/web/templates/campaign_new.html`, `campaign.html` |
-| Campaign state kept from webhooks | `internal/store/campaigns.go`, `internal/events/apply.go` |
-| Sandbox tools | `internal/web/sandbox.go` |
-| Offline mock of the platform | `internal/mockresgata/mock.go` |
-| Environment configuration and the setup screen | `internal/config/config.go`, `internal/web/templates/setup.html` |
-| Portal login token and session cookie | `internal/portal/` |
-| Per-developer workspaces, registry and cleanup | `internal/workspace/manager.go`, `internal/web/portal.go` |
-| Gate page and the "Olá, Nome" bar | `internal/web/templates/gate.html`, `internal/web/templates/layout.html` |
+| Cliente da API da Plataforma (`/connection`, `/numbers`, ajudantes do sandbox) | `internal/resgata/client.go` |
+| Cliente de modelos, públicos, campanhas e vínculo com a Meta | `internal/resgata/campaigns.go` |
+| Verifier e challenge PKCE, URL de autorização, mensagens de erro do OAuth | `internal/resgata/oauth.go` |
+| Verificação e geração da assinatura do webhook | `internal/resgata/webhook.go` |
+| Tipos do envelope de evento, explicações dos códigos de falha | `internal/resgata/events.go` |
+| Início do OAuth, retorno e desconexão | `internal/web/oauth.go` |
+| Receptor de webhooks (verificar, guardar, deduplicar, aplicar, responder) | `internal/web/webhook.go` |
+| O que cada evento faz no CRM | `internal/events/apply.go` |
+| Criptografia do token em repouso (AES-GCM) | `internal/crypto/box.go` |
+| API no estilo CRMSOLUT e limitador de requisições | `internal/crmapi/` |
+| Página de conexão, checklist de configuração, números | `internal/web/connection.go`, `internal/web/templates/connection.html` |
+| Tela de modelos | `internal/web/modelos.go`, `internal/web/templates/templates.html` |
+| Etapa "Enviar campanha", andamento, pausa e retomada | `internal/web/campanhas.go`, `internal/web/templates/campaign_new.html`, `campaign.html` |
+| Estado da campanha mantido pelos webhooks | `internal/store/campaigns.go`, `internal/events/apply.go` |
+| Ferramentas de sandbox | `internal/web/sandbox.go` |
+| Simulação offline da plataforma | `internal/mockresgata/mock.go` |
+| Configuração por ambiente e a tela de configuração | `internal/config/config.go`, `internal/web/templates/setup.html` |
+| Token de login do portal e cookie de sessão | `internal/portal/` |
+| Workspaces por desenvolvedor, registro e limpeza | `internal/workspace/manager.go`, `internal/web/portal.go` |
+| Tela de entrada e a barra "Olá, Nome" | `internal/web/templates/gate.html`, `internal/web/templates/layout.html` |
 
-## Local development with a tunnel
+## Desenvolvimento local com túnel
 
-Resgata has to reach `POST /webhooks/resgata` from the internet, so on your laptop expose
-port 8080 with any tunnel and use the public address in the portal and in `PUBLIC_URL`:
+O Resgata precisa alcançar `POST /webhooks/resgata` pela internet, então no seu notebook
+exponha a porta 8080 com qualquer túnel e use o endereço público no portal e em `PUBLIC_URL`:
 
 ```sh
 cloudflared tunnel --url http://localhost:8080
 ngrok http 8080
 ```
 
-Set `PUBLIC_URL=https://<your-tunnel-host>`, register
-`https://<your-tunnel-host>/webhooks/resgata` as a webhook endpoint and
-`https://<your-tunnel-host>/resgata/callback` as a redirect URI, then restart. The redirect
-URI must be identical to the registered one. Without a tunnel you can still run
-everything with the [offline mock](#2-offline-with-the-mock-platform).
+Defina `PUBLIC_URL=https://<host-do-seu-túnel>`, cadastre
+`https://<host-do-seu-túnel>/webhooks/resgata` como endpoint de webhook e
+`https://<host-do-seu-túnel>/resgata/callback` como URI de redirecionamento, e reinicie. A
+URI de redirecionamento precisa ser idêntica à cadastrada. Sem túnel você ainda consegue
+rodar tudo com a [simulação offline](#2-offline-com-a-plataforma-simulada).
 
-## Security notes
+## Notas de segurança
 
-- **Signature first.** Webhooks are authenticated only by their HMAC signature, verified on
-  the raw bytes, with a 5 minute replay window and constant-time comparison. Nothing is
-  applied before it passes.
-- **PKCE (S256) and one-time `state`.** The verifier is generated per attempt, kept on the
-  server and sent only to `/oauth/token`. A callback with an unknown or reused `state` is
-  refused.
-- **Encrypted token.** The connection token is encrypted with AES-GCM using
-  `APP_ENCRYPTION_KEY`. It is never rendered and is deleted when the connection is revoked.
-- **No secrets in code.** Configuration is environment only; `.env` is git-ignored; CRM API
-  keys are stored as SHA-256 hashes; tests generate their own random values.
-- **Admin UI.** Set `ADMIN_PASSWORD` (or use portal mode) for anything reachable from the internet. POSTs also
-  require a same-origin request (`Sec-Fetch-Site` and `Origin` checks). The CRM API and the
-  webhook endpoint have their own authentication and are not behind the admin password.
-- **Content-Security-Policy.** Scripts only from the app itself. Inline style attributes are
-  allowed (`style-src-attr`); there is no inline script.
-- Opt-outs are respected server side: a lead with `opt_out` cannot be messaged.
+- **Assinatura primeiro.** Os webhooks são autenticados apenas pela assinatura HMAC,
+  verificada sobre os bytes crus, com janela de 5 minutos contra repetição e comparação em
+  tempo constante. Nada é aplicado antes de ela passar.
+- **PKCE (S256) e `state` de uso único.** O verifier é gerado a cada tentativa, fica no
+  servidor e só é enviado ao `/oauth/token`. Um retorno com `state` desconhecido ou repetido
+  é recusado.
+- **Token criptografado.** O token de conexão é criptografado com AES-GCM usando
+  `APP_ENCRYPTION_KEY`. Ele nunca é exibido e é apagado quando a conexão é revogada.
+- **Sem segredos no código.** A configuração vem só do ambiente; o `.env` está no
+  `.gitignore`; as chaves da API do CRM são guardadas como hashes SHA-256; os testes geram
+  os próprios valores aleatórios.
+- **Interface administrativa.** Defina `ADMIN_PASSWORD` (ou use o modo portal) para qualquer
+  coisa acessível pela internet. Os POSTs também exigem requisição de mesma origem
+  (verificações de `Sec-Fetch-Site` e `Origin`). A API do CRM e o endpoint de webhook têm
+  autenticação própria e não ficam atrás da senha administrativa.
+- **Content-Security-Policy.** Scripts só do próprio app. Atributos de estilo inline são
+  permitidos (`style-src-attr`); não há script inline.
+- Os opt-outs são respeitados no servidor: um lead com `opt_out` não pode receber mensagens.
 
-## Development
+## Desenvolvimento
 
 ```sh
 make test    # go test -race ./...
-make lint    # gofmt check and go vet
-make build   # static binaries in bin/
+make lint    # verificação do gofmt e go vet
+make build   # binários estáticos em bin/
 ```
 
-The tests cover signature verification (tolerance window, several `v1` values, malformed
-headers), deduplication and retry-after-failure, PKCE (RFC 7636 vector), the CRMSOLUT-style
-API (auth, filters, cursor pagination, validation, rate limit), portal tokens and session
-cookies (valid, forged, expired, replayed), workspace isolation, webhook routing by
-`external_ref`, reset, purge and the capacity limit, and end-to-end flows that run OAuth,
-send messages and receive signed webhooks against the mock platform, for one developer and
-for two side by side.
+Os testes cobrem a verificação de assinatura (janela de tolerância, vários valores de `v1`,
+cabeçalhos malformados), a deduplicação e a nova tentativa após falha, o PKCE (vetor da RFC
+7636), a API no estilo CRMSOLUT (autenticação, filtros, paginação por cursor, validação,
+limite de requisições), os tokens do portal e cookies de sessão (válidos, forjados,
+expirados, repetidos), o isolamento entre workspaces, o roteamento de webhooks por
+`external_ref`, o reset, a limpeza e o limite de capacidade, e fluxos de ponta a ponta que
+rodam OAuth, enviam mensagens e recebem webhooks assinados contra a plataforma simulada, para
+um desenvolvedor e para dois lado a lado.
 
-Source files carry no comments by convention; the explanations live in this README.
+Os arquivos de código-fonte não têm comentários, por convenção; as explicações ficam neste
+README.
 
-## License
+## Licença
 
 MIT

@@ -13,11 +13,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Format
+      - name: Formatação
         run: test -z "$(gofmt -l .)"
-      - name: Vet
+      - name: Análise estática
         run: go vet ./...
-      - name: Test
+      - name: Testes
         run: go test -race -count=1 ./...
-      - name: Build
+      - name: Compilação
         run: go build ./...

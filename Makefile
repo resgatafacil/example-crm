@@ -15,7 +15,7 @@ build:
 	CGO_ENABLED=0 go build -trimpath -o bin/mockresgata ./cmd/mockresgata
 
 lint:
-	@test -z "$$(gofmt -l .)" || (gofmt -l . && echo "run: make fmt" && exit 1)
+	@test -z "$$(gofmt -l .)" || (gofmt -l . && echo "execute: make fmt" && exit 1)
 	go vet ./...
 
 fmt:

@@ -16,19 +16,19 @@ import (
 )
 
 func main() {
-	subject := flag.String("sub", "dev-1", "stable id of the developer")
-	name := flag.String("name", "Dev Exemplo", "display name of the developer")
-	ttl := flag.Duration("ttl", time.Minute, "how long the token stays valid")
-	base := flag.String("url", "", "print a full login URL under this base, for example http://localhost:8080")
-	envFile := flag.String("env-file", ".env", "optional file with KEY=value lines")
+	subject := flag.String("sub", "dev-1", "identificador estável do desenvolvedor")
+	name := flag.String("name", "Dev Exemplo", "nome de exibição do desenvolvedor")
+	ttl := flag.Duration("ttl", time.Minute, "por quanto tempo o token continua válido")
+	base := flag.String("url", "", "imprime a URL de login completa a partir desta base, por exemplo http://localhost:8080")
+	envFile := flag.String("env-file", ".env", "arquivo opcional com linhas CHAVE=valor")
 	flag.Parse()
 
 	if err := config.LoadDotEnv(*envFile, func(k, v string) { _ = os.Setenv(k, v) }, os.LookupEnv); err != nil {
-		log.Fatalf("reading %s: %v", *envFile, err)
+		log.Fatalf("lendo %s: %v", *envFile, err)
 	}
 	secret := strings.TrimSpace(os.Getenv("PORTAL_SSO_SECRET"))
 	if len(secret) < config.MinPortalSecretLen {
-		log.Fatal("set PORTAL_SSO_SECRET (at least 16 characters) in the environment or in the env file")
+		log.Fatal("defina PORTAL_SSO_SECRET (pelo menos 16 caracteres) no ambiente ou no arquivo de variáveis")
 	}
 
 	raw := make([]byte, 8)

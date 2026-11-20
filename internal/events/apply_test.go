@@ -101,7 +101,7 @@ func TestInboundMessageGoesToTheMatchingLead(t *testing.T) {
 	s := newStore(t)
 	data := map[string]any{"message": map[string]any{"id": "in_1", "from": "5519991230002", "text": "Quero agendar"}}
 	result, err := Apply(s, event(t, "message.received", data))
-	if err != nil || strings.Contains(result, "new lead") {
+	if err != nil || strings.Contains(result, "novo lead") {
 		t.Fatalf("%q %v", result, err)
 	}
 	lead, _, _ := s.LeadByPhone("+5519991230002")
@@ -141,7 +141,7 @@ func TestOptOutFlagsLeadOnce(t *testing.T) {
 			optOuts++
 		}
 	}
-	if optOuts != 1 || result != "already opted out" {
+	if optOuts != 1 || result != "opt-out já registrado" {
 		t.Fatalf("opt-out entries %d, result %q", optOuts, result)
 	}
 }
@@ -208,7 +208,7 @@ func TestCampaignEventsUpdateOnlyKnownCampaigns(t *testing.T) {
 	}
 
 	outcome, err = Apply(s, event(t, resgata.EventCampaignPaused, campaignPayload("cmp_other", "paused", 0, 0)))
-	if err != nil || !strings.Contains(outcome, "another source") {
+	if err != nil || !strings.Contains(outcome, "outra origem") {
 		t.Fatalf("a campaign made elsewhere must be ignored: %q %v", outcome, err)
 	}
 	if known, _, _ := s.Campaign("cmp_other"); known.ID != "" {
@@ -264,7 +264,7 @@ func TestTemplateEventsAreRecordedWithoutSideEffects(t *testing.T) {
 	outcome, err := Apply(s, event(t, resgata.EventTemplateRejected, map[string]any{
 		"template": map[string]any{"id": "tpl_1", "name": "promo", "status": "rejected", "rejection_reason": "INVALID_FORMAT"}, "previous_status": "pending",
 	}))
-	if err != nil || !strings.Contains(outcome, "promo is rejected") {
+	if err != nil || !strings.Contains(outcome, "modelo promo: rejected") {
 		t.Fatalf("outcome %q err %v", outcome, err)
 	}
 }
